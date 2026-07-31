@@ -45,7 +45,10 @@ function M.ring_map_gen(seed, ring_height)
         cliff_settings = {cliff_elevation_interval = 0, cliff_elevation_0 = 0},
         autoplace_settings = {
             entity = {treat_missing_as_default = false, settings = {}},
-            tile = {treat_missing_as_default = false, settings = {['concrete'] = {}}},
+            -- 这里的 tile 只是引擎生成区块那一瞬间的占位默认值，
+            -- on_chunk_generated 马上就会用 ring.lua 的 paint_area 整片覆盖掉，
+            -- 跟环带实际铺什么砖（tutorial-grid / dust-lumpy）无关，随便选一个合法固体砖即可。
+            tile = {treat_missing_as_default = false, settings = {['tutorial-grid'] = {}}},
             decorative = {treat_missing_as_default = false, settings = {}},
         },
         property_expression_names = {
@@ -84,18 +87,19 @@ function M.ensure_exp_table(player_name)
 end
 
 function M.ensure_defaults()
-    -- ══ 体力（沿用 v1：随时间恢复、离线也攒、到上限停） ══
+    -- ══ 体力双池（可领取池 pending 按 tick 存 + 体力池 balance 按点存） ══
     storage.stamina = storage.stamina or {}
-    storage.stamina_per_hour = storage.stamina_per_hour or 60
-    storage.stamina_cap = storage.stamina_cap or 1440
+    storage.stamina_ticks_per_point = storage.stamina_ticks_per_point or 3600   -- 每点体力 = 1 分钟
+    storage.stamina_pending_cap_hours = storage.stamina_pending_cap_hours or 30    -- 可领取池上限 30 小时
+    storage.stamina_balance_cap_hours = storage.stamina_balance_cap_hours or 3000  -- 体力池上限 3000 小时
+    storage.stamina_initial = storage.stamina_initial or 10000                     -- 新玩家初始体力池
 
     -- ══ 经验（12 种，按科技瓶短名分列） ══
     storage.exp = storage.exp or {}
     storage.exp_log = storage.exp_log or {}
     migrate_exp()                                                  -- v1 的 number 转 table
 
-    -- ══ 兑换 ══
-    storage.convert_cost = storage.convert_cost or 1               -- 门票制：固定扣这么多体力
+    -- ══ 兑换（配额制：1 点体力最多兑一组瓶子，见 exp.lua） ══
     storage.quality_exp = storage.quality_exp or
         {normal = 1, uncommon = 3, rare = 5, epic = 7, legendary = 9}
 
@@ -104,6 +108,16 @@ function M.ensure_defaults()
     storage.ring_concrete_height = storage.ring_concrete_height or 64  -- 中间可建带，其余均分给上下的临空带
     storage.ring_base_half_width = storage.ring_base_half_width or 32  -- L=0 时的半宽
     storage.ring_per_level = storage.ring_per_level or 16          -- 每升一级两侧各外推多少 tile
+
+    -- 语义砖名 → 实际砖原型名。geometry.lua 是纯函数、不读 storage，
+    -- 所以它只返回语义值，由 ring.lua 查这张表映射成真实砖名。
+    -- 好处：换砖只要改这里，不用碰那个有单元测试覆盖的核心函数。
+    storage.ring_tiles = storage.ring_tiles or {
+        start = 'tutorial-grid',   -- 初始那一圈：格子纹路当参考线
+        grown = 'dust-lumpy',      -- 升级长出来的：地面本身就是成长记录
+        space = 'empty-space',     -- 上下临空带
+        void  = 'out-of-map',      -- 环外的墙
+    }
 
     -- ══ 戴森环离线生命周期 ══
     -- 两个阈值都是【每次扫描现读】的，绝不缓存成到期 tick，这样改配置能立即对全体生效。

@@ -53,28 +53,46 @@ check('L=72', geo.half_width(72, 32, 16), 1184)
 
 -- ══ tile_at ══
 -- 约定：tile 坐标 x 占据 [x, x+1)，所以有效范围是 x ∈ [-half, half)
-local HW, RH, CH = 32, 128, 64
-local function t(x, y) return geo.tile_at(x, y, HW, RH, CH) end
+-- 返回值现在是语义值：'start' / 'grown' / 'space' / 'void'（不是具体砖名，见 geometry.lua 顶部注释）
+local HW, RH, CH, BHW = 32, 128, 64, 32
+local function t(x, y) return geo.tile_at(x, y, HW, RH, CH, BHW) end
 
-check('原点是混凝土',        t(0, 0), 'concrete')
-check('右边界内最后一格',    t(31, 0), 'concrete')
-check('右边界外第一格',      t(32, 0), 'out-of-map')
-check('左边界内第一格',      t(-32, 0), 'concrete')
-check('左边界外第一格',      t(-33, 0), 'out-of-map')
+check('原点是初始区域',      t(0, 0), 'start')
+check('右边界内最后一格',    t(31, 0), 'start')
+check('右边界外第一格',      t(32, 0), 'void')
+check('左边界内第一格',      t(-32, 0), 'start')
+check('左边界外第一格',      t(-33, 0), 'void')
 
-check('混凝土带上沿(含)',    t(0, -32), 'concrete')
-check('混凝土带上沿外',      t(0, -33), 'empty-space')
-check('混凝土带下沿(不含)',  t(0, 32), 'empty-space')
-check('混凝土带下沿内',      t(0, 31), 'concrete')
+check('混凝土带上沿(含)',    t(0, -32), 'start')
+check('混凝土带上沿外',      t(0, -33), 'space')
+check('混凝土带下沿(不含)',  t(0, 32), 'space')
+check('混凝土带下沿内',      t(0, 31), 'start')
 
-check('环上沿内',            t(0, -64), 'empty-space')
-check('环上沿外',            t(0, -65), 'out-of-map')
-check('环下沿内',            t(0, 63), 'empty-space')
-check('环下沿外',            t(0, 64), 'out-of-map')
+check('环上沿内',            t(0, -64), 'space')
+check('环上沿外',            t(0, -65), 'void')
+check('环下沿内',            t(0, 63), 'space')
+check('环下沿外',            t(0, 64), 'void')
 
 -- 横向墙优先于纵向分带：环外就是环外，不管 y 在哪一段
-check('横向越界压过纵向分带', t(100, 0), 'out-of-map')
-check('横向越界压过临空带',   t(100, 40), 'out-of-map')
+check('横向越界压过纵向分带', t(100, 0), 'void')
+check('横向越界压过临空带',   t(100, 40), 'void')
+
+-- ══ tile_at：初始区域 vs 升级长出来的区域（base_half_width 语义）══
+-- half_width == base_half_width 时，整条混凝土带都还是 'start'，没有 'grown' 的空间。
+check('初始区域内(原点)',    t(0, 0), 'start')
+check('初始区域内(x=31)',    t(31, 0), 'start')
+check('初始区域内(x=-32)',   t(-32, 0), 'start')
+
+-- half_width 大于 base_half_width：外侧是升级长出来的 'grown'。
+local HW2, BHW2 = 80, 32
+local function tg(x, y) return geo.tile_at(x, y, HW2, RH, CH, BHW2) end
+
+check('grown 场景: 初始区域内仍是 start',  tg(0, 0), 'start')
+check('grown 场景: base 右边界外第一格',   tg(32, 0), 'grown')
+check('grown 场景: base 左边界外第一格',   tg(-33, 0), 'grown')
+check('grown 场景: 新半宽内最后一格',      tg(79, 0), 'grown')
+check('grown 场景: 新半宽外第一格(墙)',    tg(80, 0), 'void')
+check('grown 场景: 临空带仍是 space',      tg(50, 40), 'space')
 
 -- ══ 汇总 ══
 print(string.format('%d/%d 通过', total - failures, total))

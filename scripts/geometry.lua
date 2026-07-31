@@ -44,29 +44,42 @@ function M.half_width(level, base_half_width, per_level)
     return base_half_width + per_level * level
 end
 
--- 给定 tile 坐标，返回该铺哪种砖。
+-- 给定 tile 坐标，返回该铺哪种【语义】砖，而不是具体的砖原型名。
+--
+-- 为什么不直接返回 'tutorial-grid' / 'dust-lumpy' 这些真名：
+-- 本文件是纯函数模块，不能读 storage（换砖名是运营层面的事，不该逼这里去碰全局状态）。
+-- 语义值只有四种：
+--   'start'  初始那一圈（L=0 时就有的地皮）
+--   'grown'  升级长出来的地皮（攒经验换来的，地面本身就是成长记录）
+--   'space'  上下的临空带
+--   'void'   环外的墙
+-- 真正的砖名映射交给 ring.lua 查 storage.ring_tiles。
 --
 -- 坐标约定：tile 坐标 x 占据 [x, x+1)，所以有效横向范围是 x ∈ [-half_width, half_width)，
 -- 纵向同理。左闭右开，和 Factorio 的 tile 语义一致。
 --
 -- 判断顺序有意义：横向的墙优先于纵向的分带。环外就是环外，不管 y 落在哪一段。
-function M.tile_at(x, y, half_width, ring_height, concrete_height)
+function M.tile_at(x, y, half_width, ring_height, concrete_height, base_half_width)
     if x < -half_width or x >= half_width then
-        return 'out-of-map'
+        return 'void'
     end
 
     local concrete_half = concrete_height / 2
     if y >= -concrete_half and y < concrete_half then
-        return 'concrete'
+        -- 左闭右开和横向范围一致：x = -base_half_width 算 'start'。
+        if x >= -base_half_width and x < base_half_width then
+            return 'start'
+        end
+        return 'grown'
     end
 
     local ring_half = ring_height / 2
     if y >= -ring_half and y < ring_half then
-        return 'empty-space'
+        return 'space'
     end
 
     -- 引擎的 height 硬边界本来就不会生成这里，走到这一步说明配置不一致，兜底成墙。
-    return 'out-of-map'
+    return 'void'
 end
 
 return M

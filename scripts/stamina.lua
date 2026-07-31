@@ -1,99 +1,125 @@
--- 体力系统。沿用 endfield_factorio 的星星机制：随时间恢复、离线也在攒、攒到上限就不再涨。
+-- 体力双池系统。沿用 endfield_factorio「星星」机制的形状：随时间恢复、离线也在攒、攒到上限就不再涨。
 --
--- 存储形态：storage.stamina[玩家名] = { amount = 当前点数, last = 上次结算的 tick }
--- 用"上次结算 tick + 惰性补算"而不是每 tick 给所有人加，是为了：
---   1. 离线玩家不需要遍历，登录时一次补齐；
---   2. 不占 on_tick 预算，人数再多也没有额外开销。
+-- 存储形态：storage.stamina[玩家名] = {
+--     last    = 上次结算的 tick,
+--     pending = 【可领取池】，单位 tick，上限 stamina_pending_cap_hours 小时,
+--     balance = 【体力池】，单位【点】，上限 stamina_balance_cap_hours 小时对应的点数,
+-- }
 --
--- 全部用整数运算并保留余数（last 只前进"已兑现"的那部分 tick），所以不会有浮点漂移，
--- 也不会因为每次读取的时机不同而少给或多给零头。
+-- 关键细节（照抄 endfield 的 show_star / claim_charge）：可领取池按 tick 存，只在显示
+-- 或领取时才换算成"点"。如果按点存，每次结算跨过半点就得决定丢掉还是四舍五入——
+-- 丢零头长期少给，四舍五入长期多给，两种都会随时间累积出偏差。存 tick 全程整数精确，
+-- 结算只前进"当前 tick"，领取只扣走"凑够整点"的那部分 tick，余数原样留在 pending 里，
+-- 所以不管领取的时机多凑巧，都不会多给也不会少给。
+--
+-- 体力池（balance）本身只在 claim / add 里以整点数变动，不存在换算，天然没有零头问题。
 local constants = require('scripts.constants')
 
 local M = {}
 
--- 每点体力需要多少 tick。由 storage.stamina_per_hour 反推，至少 1 防除零。
+-- 每点体力需要多少 tick。
 local function ticks_per_point()
-    local per_hour = storage.stamina_per_hour or 60
-    if per_hour <= 0 then return math.huge end
-    return math.max(1, math.floor(constants.hour_to_tick / per_hour))
+    return math.max(1, storage.stamina_ticks_per_point or 3600)
 end
 
--- 取（并顺带补算）某玩家的体力记录。create=false 且没记录时返回 nil。
-local function record(name, create)
+-- 可领取池（pending）的 tick 上限。
+local function pending_cap_ticks()
+    return math.max(0, (storage.stamina_pending_cap_hours or 30) * constants.hour_to_tick)
+end
+
+-- 体力池（balance）的点数上限。
+local function balance_cap_points()
+    return math.floor(math.max(0, (storage.stamina_balance_cap_hours or 3000) * constants.hour_to_tick)
+        / ticks_per_point())
+end
+
+-- 可领取池满额时对应多少点。HUD 显示"可领 X / 上限 Y"用。
+function M.pending_cap_points()
+    return math.floor(pending_cap_ticks() / ticks_per_point())
+end
+
+-- 体力池的点数上限。HUD 显示"余额 X / 上限 Y"用。
+function M.balance_cap_points()
+    return balance_cap_points()
+end
+
+-- 取（并按需创建）某玩家的体力记录。新记录从 last=当前 tick、两池皆空开始。
+local function record(name)
     storage.stamina = storage.stamina or {}
     local rec = storage.stamina[name]
     if not rec then
-        if not create then return nil end
-        rec = {amount = 0, last = game.tick}
+        rec = {last = game.tick, pending = 0, balance = 0}
         storage.stamina[name] = rec
     end
     return rec
 end
 
--- 把「上次结算到现在」这段时间折算成体力加进去。所有读写体力的入口都先调它。
--- 到达上限后 last 直接推到当前 tick，溢出的时间不累积（满了就是浪费，和手游体力一致）。
-local function settle(rec)
-    local cap = storage.stamina_cap or 1440
-    local per = ticks_per_point()
-    if per == math.huge then rec.last = game.tick; return rec end
-
-    local elapsed = game.tick - (rec.last or game.tick)
-    if elapsed <= 0 then return rec end
-
-    local gained = math.floor(elapsed / per)
-    if gained > 0 then
-        rec.amount = math.min(cap, (rec.amount or 0) + gained)
-        rec.last = (rec.last or game.tick) + gained * per   -- 只推进已兑现的部分，余数留到下次
+-- 结算：把「上次结算到现在」这段时间折算进 pending（封顶），last 推到当前 tick。
+-- 所有读写体力的入口都先调用它。pending 全程按 tick 存、直接前进 last 到 now，
+-- 不需要像"按点结算"那样为保留余数而分两步推进，天然没有漂移。
+function M.settle(player_name)
+    local rec = record(player_name)
+    local now = game.tick
+    local elapsed = now - (rec.last or now)
+    if elapsed > 0 then
+        rec.pending = math.min(pending_cap_ticks(), (rec.pending or 0) + elapsed)
     end
-    if rec.amount >= cap then rec.last = game.tick end       -- 满了就不再攒余数
+    rec.last = now
     return rec
 end
 
--- 当前体力（整数）。这是所有 GUI / 校验的读取口。
-function M.get(player_name)
-    local rec = record(player_name, true)
-    settle(rec)
-    return rec.amount or 0
+-- 当前可领取池的 tick 数（已结算）。
+function M.pending_ticks(player_name)
+    return M.settle(player_name).pending or 0
 end
 
--- 距离下一点体力还差多少 tick，供 GUI 画恢复进度条。满了返回 0。
-function M.ticks_to_next(player_name)
-    local rec = record(player_name, true)
-    settle(rec)
-    if (rec.amount or 0) >= (storage.stamina_cap or 1440) then return 0 end
+-- 可领取的整点数（不足一点的部分留在 pending 里，不会被截断丢弃）。
+function M.claimable(player_name)
+    return math.floor(M.pending_ticks(player_name) / ticks_per_point())
+end
+
+-- 可领取池的进度，夹在 [0,1]，HUD 进度条用。
+function M.pending_fraction(player_name)
+    local cap = pending_cap_ticks()
+    if cap <= 0 then return 0 end
+    return math.max(0, math.min(1, M.pending_ticks(player_name) / cap))
+end
+
+-- 体力池当前点数（已结算）。
+function M.balance(player_name)
+    return M.settle(player_name).balance or 0
+end
+
+-- 领取：把 pending 里凑够的整点数转入 balance（封顶），pending 保留不足一点的余数。
+-- 体力池已满时领不进去（room 会截断到 0）。返回实际领取的点数。
+function M.claim(player_name)
+    local rec = M.settle(player_name)
     local per = ticks_per_point()
-    if per == math.huge then return 0 end
-    return per - ((game.tick - (rec.last or game.tick)) % per)
+    local n = math.floor((rec.pending or 0) / per)
+    local room = balance_cap_points() - (rec.balance or 0)
+    n = math.max(0, math.min(n, room))
+    if n <= 0 then return 0 end
+    rec.balance = (rec.balance or 0) + n
+    rec.pending = (rec.pending or 0) - n * per
+    return n
 end
 
--- 扣体力。够扣返回 true 并扣除，不够返回 false 且不改动。
-function M.spend(player_name, amount)
-    amount = math.floor(amount or 0)
-    if amount <= 0 then return true end
-    local rec = record(player_name, true)
-    settle(rec)
-    if (rec.amount or 0) < amount then return false end
-    rec.amount = rec.amount - amount
+-- 扣体力点数。够扣返回 true 并扣除，不够返回 false 且不改动。
+function M.spend(player_name, points)
+    points = math.floor(points or 0)
+    if points <= 0 then return true end
+    local rec = M.settle(player_name)
+    if (rec.balance or 0) < points then return false end
+    rec.balance = rec.balance - points
     return true
 end
 
--- 加体力（管理员补偿 / 活动奖励用）。会被上限截断。
-function M.add(player_name, amount)
-    amount = math.floor(amount or 0)
-    if amount == 0 then return end
-    local rec = record(player_name, true)
-    settle(rec)
-    rec.amount = math.max(0, math.min(storage.stamina_cap or 1440, (rec.amount or 0) + amount))
-end
-
--- 玩家之间转赠体力。成功返回 true，余额不足或目标无效返回 false。
--- 转赠会让"离线攒体力"变成可交易的资源，挂机玩家因此对活跃玩家有价值。
-function M.transfer(from_name, to_name, amount)
-    amount = math.floor(amount or 0)
-    if amount <= 0 or from_name == to_name then return false end
-    if not M.spend(from_name, amount) then return false end
-    M.add(to_name, amount)
-    return true
+-- 直接加体力点数（管理员补偿 / 新玩家初始赠送用），封顶。
+function M.add(player_name, points)
+    points = math.floor(points or 0)
+    if points == 0 then return end
+    local rec = M.settle(player_name)
+    rec.balance = math.max(0, math.min(balance_cap_points(), (rec.balance or 0) + points))
 end
 
 return M

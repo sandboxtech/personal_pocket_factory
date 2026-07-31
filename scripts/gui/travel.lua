@@ -1,12 +1,12 @@
 local constants = require('scripts.constants')
 local pockets = require('scripts.pockets')
 local worlds = require('scripts.worlds')
+local popup = require('scripts.gui.popup')
 
 local M = {}
 
 function M.show(player)
-    local gui = require('scripts.gui.init')
-    local inner = gui.open_popup(player, {'pw.travel-title'})
+    local inner = popup.open_popup(player, {'pw.travel-title'})
 
     -- 一、回自己的戴森环
     inner.add{type = 'button', name = 'pw_go_ring', caption = {'pw.travel-home'}}
@@ -20,10 +20,10 @@ function M.show(player)
         local row = inner.add{type = 'flow', direction = 'horizontal'}
         local surface = game.surfaces[name]
         local left = math.max(0, math.floor(worlds.time_left(name) / constants.min_to_tick))
-        local run = (storage.world_run or {})[name] or 0
 
-        row.add{type = 'label', caption = {'pw.travel-world-row', name, left, run}}
+        -- 按钮放在最前面，方便玩家一眼定位可点击项
         local go = row.add{type = 'button', name = 'pw_go_' .. name, caption = {'pw.travel-go'}}
+        row.add{type = 'label', caption = {'pw.travel-world-row', name, left}}
         if not (surface and surface.valid) then
             go.enabled = false
             go.tooltip = {'pw.world-not-ready', name}
@@ -37,10 +37,11 @@ function M.show(player)
             storage.ring_public_hours or 30}}
         for _, entry in ipairs(rings) do
             local row = inner.add{type = 'flow', direction = 'horizontal'}
-            row.add{type = 'label', caption = {'pw.travel-ring-row',
-                entry.owner_name, entry.half_width * 2, entry.idle_hours}}
+            -- 按钮放在最前面，与上面公共世界那一段保持一致
             local go = row.add{type = 'button', name = 'pw_go_ring_' .. entry.owner_index,
                                caption = {'pw.travel-go'}}
+            row.add{type = 'label', caption = {'pw.travel-ring-row',
+                entry.owner_name, entry.half_width * 2, entry.idle_hours}}
             if not entry.enterable then
                 go.enabled = false
                 -- 还差多久才可进入，给玩家一个可规划的数字
@@ -52,11 +53,9 @@ function M.show(player)
 end
 
 function M.on_click(player, name)
-    local gui = require('scripts.gui.init')
-
     if name == 'pw_go_ring' then
         pockets.enter(player)
-        gui.close_popup(player)
+        popup.close_popup(player)
         return true
     end
 
@@ -68,7 +67,7 @@ function M.on_click(player, name)
         local surface = owner and pockets.get(owner)
         if not (surface and surface.valid) then
             player.print({'pw.travel-ring-gone'})
-            gui.close_popup(player)
+            popup.close_popup(player)
             return true
         end
 
@@ -76,7 +75,7 @@ function M.on_click(player, name)
         -- UI 的 enabled 只是提示，真正的闸门在这里。
         if pockets.idle_hours(owner) < (storage.ring_public_hours or 30) then
             player.print({'pw.travel-ring-locked-msg', owner.name})
-            gui.close_popup(player)
+            popup.close_popup(player)
             return true
         end
 
@@ -86,13 +85,13 @@ function M.on_click(player, name)
 
         local pos = surface.find_non_colliding_position('character', {4, 0}, 64, 1) or {4, 0}
         player.teleport(pos, surface)
-        gui.close_popup(player)
+        popup.close_popup(player)
         return true
     end
 
     if string.sub(name, 1, 6) == 'pw_go_' then
         worlds.travel(player, string.sub(name, 7))
-        gui.close_popup(player)
+        popup.close_popup(player)
         return true
     end
 

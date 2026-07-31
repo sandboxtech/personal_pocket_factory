@@ -8,6 +8,7 @@
 local constants = require('scripts.constants')
 local events = require('scripts.events')
 local pockets = require('scripts.pockets')
+local stamina = require('scripts.stamina')
 
 local M = {}
 
@@ -76,6 +77,7 @@ events.on(defines.events.on_player_created, function(event)
     assign_group(player)
     pockets.enter(player)
     grant_starter(player)
+    stamina.add(player.name, storage.stamina_initial or 10000)   -- 新玩家的初始体力池，不用干等着攒
     player.print({'pw.welcome'})
 end)
 

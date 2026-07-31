@@ -15,6 +15,10 @@
 --   错开之后，任何时刻都有"刚重置的新鲜世界"和"快到期的成熟世界"，玩家永远有地方去，
 --   也永远有理由赶在某个世界到期前把东西搬走。
 local constants = require('scripts.constants')
+-- 提到顶层：函数体内 require 是 v1 遗留的潜伏 bug（只有公共世界重置走到 evacuate()
+-- 时才会触发，一直没被发现）。pockets 只依赖 constants/ring/chests，均不依赖 worlds，
+-- 提到顶层不会形成新环。
+local pockets = require('scripts.pockets')
 
 local M = {}
 
@@ -28,15 +32,42 @@ function M.ensure_surfaces()
     end
 end
 
--- 给公共世界套上有限边界。width/height 是 MapGenSettings 的引擎级硬边界，
--- 边界外是 out-of-map，引擎不生成区块，存档体积从根上受控。
--- 注意：改 map_gen_settings 只影响【之后生成】的区块，所以必须在 clear() 之前设好。
-function M.apply_bounds(surface)
+-- 给公共世界套上有限边界，并可选地换一颗新种子。
+--
+-- width/height 是 MapGenSettings 的引擎级硬边界，边界外是 out-of-map，引擎不生成区块，
+-- 存档体积从根上受控。
+-- 【注意】改 map_gen_settings 只影响【之后生成】的区块，所以必须在 clear() 之前设好。
+--
+-- seed 传了才换。首次建面时不需要换（用星球自带的种子），
+-- 重置时必须换 —— 否则 clear() 会用同一颗种子重新生成【同一张图】，
+-- 「每轮都是新鲜世界」这个前提就垮了。
+function M.apply_bounds(surface, seed)
     local size = storage.public_size or 2048
     local mgs = surface.map_gen_settings
     mgs.width = size
     mgs.height = size
+    if seed then mgs.seed = seed end
     surface.map_gen_settings = mgs
+end
+
+-- 由星球名和轮次确定性地派生一颗种子。
+--
+-- 确定性（而不是 math.random）是有意的：同一个存档回滚重放会得到同样的地图，
+-- 便于复现问题；而且多人下不依赖随机数状态，不会有同步隐患。
+--
+-- 用 bit32.bxor 而不是 5.3+ 的 `~` 运算符：Factorio 的场景脚本跑在 Lua 5.2 环境里，
+-- 5.2 没有原生位运算符（`~` 在 5.2 里根本不是合法的二元运算符，会直接语法错误），
+-- 只提供 bit32 库；本项目的 scripts/noise.lua 顶部 `local bit32_band = bit32.band`
+-- 已经是这个环境里 bit32 可用、且是正确写法的实证。
+--
+-- 结果必须落在 uint32 范围内 —— Factorio 的 seed 是 uint32，超范围会被截断或报错。
+function M.derive_seed(planet_name, run)
+    local h = 2166136261                      -- FNV-1a 的 offset basis
+    for i = 1, #planet_name do
+        h = bit32.bxor(h, string.byte(planet_name, i)) * 16777619 % 4294967296
+    end
+    h = bit32.bxor(h, run) * 16777619 % 4294967296
+    return h % 2147483647                     -- 保守地夹进 int32 正数范围
 end
 
 -- 错峰排期：把五个星球的首次重置时间均匀铺在一个周期里。
@@ -60,7 +91,6 @@ end
 
 -- 把还留在某世界上的玩家撤回各自的口袋世界。重置前调用，避免把人清进虚空。
 local function evacuate(surface)
-    local pockets = require('scripts.pockets')
     for _, player in pairs(game.connected_players) do
         if player.surface == surface then
             player.print({'pw.world-evacuated', surface.name})
@@ -77,11 +107,18 @@ function M.reset_world(planet_name)
     if not surface or not surface.valid then return false end
 
     evacuate(surface)
-    M.apply_bounds(surface)
+
+    -- 种子要用【新一轮】的轮次号派生，所以先把 next_run 算出来（不落盘），
+    -- 用它连同星球名派生新种子，随边界一起在 clear() 之前设好；
+    -- 真正写回 storage.world_run 放到 clear() 之后，和原来的落盘时机保持一致。
+    storage.world_run = storage.world_run or {}
+    local next_run = (storage.world_run[planet_name] or 0) + 1
+    local seed = M.derive_seed(planet_name, next_run)
+
+    M.apply_bounds(surface, seed)
     surface.clear(true)
 
-    storage.world_run = storage.world_run or {}
-    storage.world_run[planet_name] = (storage.world_run[planet_name] or 0) + 1
+    storage.world_run[planet_name] = next_run
 
     storage.world_reset_at = storage.world_reset_at or {}
     storage.world_reset_at[planet_name] = game.tick + (storage.world_reset_minutes or 120) * constants.min_to_tick
