@@ -2,8 +2,8 @@
 --
 -- 存储形态：storage.stamina[玩家名] = {
 --     last    = 上次结算的 tick,
---     pending = 【可领取池】，单位 tick，上限 stamina_pending_cap_hours 小时,
---     balance = 【体力池】，单位【点】，上限 stamina_balance_cap_hours 小时对应的点数,
+--     pending = 【可领取池】，单位 tick，上限 stamina_pending_cap 点对应的 tick 数,
+--     balance = 【体力池】，单位【点】，上限 stamina_balance_cap 点,
 -- }
 --
 -- 关键细节（照抄 endfield 的 show_star / claim_charge）：可领取池按 tick 存，只在显示
@@ -13,7 +13,11 @@
 -- 所以不管领取的时机多凑巧，都不会多给也不会少给。
 --
 -- 体力池（balance）本身只在 claim / add 里以整点数变动，不存在换算，天然没有零头问题。
-local constants = require('scripts.constants')
+--
+-- 两个上限（stamina_pending_cap / stamina_balance_cap）直接配点数，不再按小时换算——
+-- 老版本是"配小时数，乘 hour_to_tick 再折算成点"，本版直接把点数写进 storage，
+-- pending 因为内部按 tick 存，仍要在这里把"点上限"换算成"tick 上限"；
+-- balance 本来就按点存，点上限直接读、直接比较即可。
 
 local M = {}
 
@@ -22,20 +26,19 @@ local function ticks_per_point()
     return math.max(1, storage.stamina_ticks_per_point or 3600)
 end
 
--- 可领取池（pending）的 tick 上限。
+-- 可领取池（pending）的 tick 上限：点数上限 × 每点的 tick 数。
 local function pending_cap_ticks()
-    return math.max(0, (storage.stamina_pending_cap_hours or 30) * constants.hour_to_tick)
+    return math.max(0, (storage.stamina_pending_cap or 100000) * ticks_per_point())
 end
 
--- 体力池（balance）的点数上限。
+-- 体力池（balance）的点数上限：直接就是配置的点数，无需换算。
 local function balance_cap_points()
-    return math.floor(math.max(0, (storage.stamina_balance_cap_hours or 3000) * constants.hour_to_tick)
-        / ticks_per_point())
+    return math.max(0, storage.stamina_balance_cap or 10000000)
 end
 
 -- 可领取池满额时对应多少点。HUD 显示"可领 X / 上限 Y"用。
 function M.pending_cap_points()
-    return math.floor(pending_cap_ticks() / ticks_per_point())
+    return math.max(0, storage.stamina_pending_cap or 100000)
 end
 
 -- 体力池的点数上限。HUD 显示"余额 X / 上限 Y"用。

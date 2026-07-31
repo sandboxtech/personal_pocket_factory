@@ -1,4 +1,6 @@
 -- 通用工具函数：无状态、无副作用，任何模块都可以 require。
+local constants = require('scripts.constants')
+
 local M = {}
 
 -- 大数字转可读串：12345 → 12.3k，1234567 → 1.23M。用于 GUI 展示经验/资源数量。
@@ -36,6 +38,18 @@ function M.main_inventory(player)
     local character = M.body_character(player)
     if not character then return nil end
     return character.get_inventory(defines.inventory.character_main)
+end
+
+-- 是否是「老玩家」：累计在线时长够长，界面上给他看更多细节。
+-- 新人看到的界面要清爽，先把「怎么玩」看明白，再谈那些需要经验才用得上的数字。
+--
+-- player.online_time 是这个存档里该玩家【全部会话累计】的在线 tick 数
+-- （跨重连、跨断线续玩持续累加，不是"这一次会话"的时长），单机测试或没有
+-- 存档历史时可能是 0，此时按新人处理，不会因为字段缺失而报错。
+function M.is_veteran(player)
+    if not player then return false end
+    local hours = storage.detail_hours or 6
+    return (player.online_time or 0) >= hours * constants.hour_to_tick
 end
 
 return M

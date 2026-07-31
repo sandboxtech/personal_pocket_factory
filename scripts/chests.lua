@@ -177,22 +177,21 @@ local function on_built(event)
 
     local in_ring = ring.is_ring_surface(entity.surface)
 
-    if in_ring then
-        -- 戴森环里关联箱退化回木箱：家里要有普通储物箱可用。
-        -- 12 个预置收货箱是脚本 create_entity 出来的，不触发本事件，不会被误伤。
-        -- 万一将来接了 script_raised_built，判据是 destructible == false（玩家放的永远可摧毁）。
-        if entity.name == LINKED and entity.destructible then
-            swap(entity, WOOD, player_index)
-        end
-        return
-    end
-
-    -- 公共世界：木箱兜底转成关联箱，然后一律绑 ID
+    -- 木箱 → 关联箱的兜底转换只发生在【非戴森环】的表面：
+    -- 戴森环里木箱就是普通储物箱，保持原样不动（家里要有普通储物箱可用）。
+    -- 这里兜底的是组装机/蓝图产出的、以实体形式直接摆上来的木箱——
+    -- 玩家手搓的木箱在 on_player_crafted_item 里已经在物品状态就换成了关联箱物品，不会走到这里。
     local chest = entity
     if chest.name == WOOD then
+        if in_ring then return end
         chest = swap(chest, LINKED, player_index)
         if not (chest and chest.valid) then return end
     end
+
+    -- 走到这里 chest.name 必为 LINKED，不区分是否在戴森环里，以下这套规则统一生效：
+    -- 戴森环里关联箱不再退化回木箱——玩家可以在自己环里放关联箱，它会经由
+    -- rightful_link_id 绑到自己（或环的 public 状态对应）的 link_id 上，
+    -- 和那 12 个系统收货箱共享同一份库存，放了没有额外用处，但无害。
 
     -- neutral force 是防偷的核心：这里处理的是「攻击者挖走别人的投递口、拿到
     -- linked-chest 物品、自己放下」这条路径——放下时会再次经过本函数，一律转成
@@ -210,9 +209,82 @@ local function on_built(event)
     -- （原型自带 gui_mode = "admins" 只挡普通玩家，但放行管理员）。防偷是两道锁分工：
     -- gui_mode = "admins" 挡普通玩家，operable = false 挡管理员，neutral force 挡攻击者造假。
     chest.operable = false
+
+    -- ══ 全宇宙范围内，玩家自己放的关联箱只能有 1 个：放新的先摧毁旧的 ══
+    -- 作用域固定是全局、且不区分平面——任何 surface（公共世界的五个星球 + 每个人自己的
+    -- 戴森环）上放的关联箱都算在同一个名额里，不再提供按星球分别计数的可选作用域。
+    --
+    -- 判定「这是不是玩家放的箱子」的唯一依据是 entity.destructible：
+    -- 戴森环里那 12 个系统收货箱固定 destructible = false，且是脚本 create_entity
+    -- （raise_built = false）造出来的，本来就不会触发 on_built_entity/on_robot_built_entity，
+    -- 不会走到这里；这里仍然显式判一次 destructible 作为双重保险——
+    -- 玩家放的箱子永远是可摧毁的，destructible == false 就是系统箱区别于玩家箱的唯一标志。
+    --
+    -- 取不到建造者（player_index 为空，例如机器人建造时 last_user 也拿不到）就不做限制——
+    -- 这种箱子已经在 rightful_link_id 里兜底成公共库存了，不属于「某个玩家的投递口」。
+    if player_index and chest.destructible then
+        storage.player_chests = storage.player_chests or {}
+        local old = storage.player_chests[player_index]
+        if old then
+            local old_surface = old.surface and game.surfaces[old.surface]
+            if old_surface and old_surface.valid then
+                local old_chest = old_surface.find_entity(LINKED, {old.x, old.y})
+                -- old_chest 和 chest 是同一个实体，说明玩家是【原地重建】：新箱子恰好落在
+                -- 登记表记录的旧坐标上，旧箱子早已不在了（这个位置现在站着的就是新箱子本身）。
+                -- 这种情况绝不能 destroy()，否则摧毁的其实是刚建好的新箱子。
+                -- 用「实体是否同一个」而不是比较坐标数值，是为了不管登记表有没有及时被
+                -- on_player_mined_entity/on_entity_died 清理掉，这条判断都成立。
+                if old_chest and old_chest.valid and old_chest ~= chest then
+                    -- 关联箱的库存是共享的（挂在 link_id 上，不挂在箱子实体上），
+                    -- 摧毁箱子本身不会丢失货物——货物仍留在那份共享库存里，
+                    -- 所以这里不需要、也不应该在摧毁前搬运任何物品。
+                    old_chest.destroy()
+                    local old_player = game.players[player_index]
+                    if old_player then
+                        old_player.print({'pw.dropoff-replaced', old.surface})
+                    end
+                end
+                -- old_chest 为 nil：旧箱子已经不在了（被挖走或世界重置清掉了），
+                -- 静默跳过，直接用新坐标覆盖登记项即可。
+            end
+            -- old_surface 无效：那个星球/戴森环的 surface 已经不存在了，同样静默跳过。
+        end
+        storage.player_chests[player_index] = {surface = chest.surface.name, x = chest.position.x, y = chest.position.y}
+    end
 end
 
 events.on(defines.events.on_built_entity, on_built)
 events.on(defines.events.on_robot_built_entity, on_built)
+
+-- ══ 挖走 / 被摧毁时清理登记表 ══
+-- 现在戴森环里也可能存在被登记的玩家关联箱（见上面 on_built），所以不再按 surface
+-- 排除戴森环——任何平面上的都要清理。
+-- 那 12 个系统收货箱 destructible = false、minable = false，本来就不会触发
+-- on_player_mined_entity 也不会触发 on_entity_died；这里仍然显式判一次 destructible
+-- 作为双重保险，和 on_built 里的判据保持一致：destructible == false 是系统箱的唯一标志。
+-- 不清理也不会出大错：下次放置时 find_entity 在旧坐标找不到箱子，会静默跳过——
+-- 但留着指向空气的登记项是脏数据，清掉更干净。
+local function forget_chest(entity)
+    if not (entity and entity.valid) then return end
+    if entity.name ~= LINKED then return end
+    if not entity.destructible then return end
+    -- 实体这一刻仍然有效，position 必须现在取——事件处理完之后实体就没了。
+    local surface_name = entity.surface.name
+    local position = entity.position
+    storage.player_chests = storage.player_chests or {}
+    for key, rec in pairs(storage.player_chests) do
+        if rec.surface == surface_name and rec.x == position.x and rec.y == position.y then
+            storage.player_chests[key] = nil
+        end
+    end
+end
+
+events.on(defines.events.on_player_mined_entity, function(event)
+    forget_chest(event.entity)
+end)
+
+events.on(defines.events.on_entity_died, function(event)
+    forget_chest(event.entity)
+end)
 
 return M

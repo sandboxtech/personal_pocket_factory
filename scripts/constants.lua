@@ -72,6 +72,17 @@ local function migrate_exp()
     end
 end
 
+-- 把 v1 的 storage.world_reset_minutes（统一一个 number）迁移成 per-planet table。
+-- 不做"拿旧数字填满五个星球"式的迁移：这次改造的目的就是让周期分层
+-- （nauvis 一小时练兵、aquilo 五小时长线经营），沿用旧的单一数字反而违背改动意图。
+-- 直接置 nil，交给下面 ensure_defaults 里的默认值表重建。
+-- 幂等：已经是 table（或本来就没设过）的不动。
+local function migrate_world_reset_minutes()
+    if type(storage.world_reset_minutes) == 'number' then
+        storage.world_reset_minutes = nil
+    end
+end
+
 -- 保证某玩家的经验表存在且 12 个键齐全。新增瓶种时也靠它补齐。
 function M.ensure_exp_table(player_name)
     storage.exp = storage.exp or {}
@@ -89,9 +100,10 @@ end
 function M.ensure_defaults()
     -- ══ 体力双池（可领取池 pending 按 tick 存 + 体力池 balance 按点存） ══
     storage.stamina = storage.stamina or {}
-    storage.stamina_ticks_per_point = storage.stamina_ticks_per_point or 3600   -- 每点体力 = 1 分钟
-    storage.stamina_pending_cap_hours = storage.stamina_pending_cap_hours or 30    -- 可领取池上限 30 小时
-    storage.stamina_balance_cap_hours = storage.stamina_balance_cap_hours or 3000  -- 体力池上限 3000 小时
+    storage.stamina_ticks_per_point = storage.stamina_ticks_per_point or 60     -- 每点体力 = 1 秒
+    -- 上限直接配点数，不再按小时换算。
+    storage.stamina_pending_cap = storage.stamina_pending_cap or 100000       -- 可领取池上限（点）
+    storage.stamina_balance_cap = storage.stamina_balance_cap or 10000000     -- 体力池上限（点）
     storage.stamina_initial = storage.stamina_initial or 10000                     -- 新玩家初始体力池
 
     -- ══ 经验（12 种，按科技瓶短名分列） ══
@@ -131,9 +143,31 @@ function M.ensure_defaults()
 
     -- ══ 公共世界 ══
     storage.public_size = storage.public_size or 2048
-    storage.world_reset_minutes = storage.world_reset_minutes or 120
+    migrate_world_reset_minutes()                                   -- v1 的统一 number 转 per-planet table
+    -- 每星球各自的重置周期（分钟）。周期长短即难度分层：
+    -- nauvis 一小时一轮，是新人的练兵场；aquilo 五小时一轮，值得长线经营。
+    -- 【按名字索引，不按下标】——constants.PUBLIC_PLANETS 的顺序是
+    -- {nauvis, vulcanus, gleba, fulgora, aquilo}，和这张表里 fulgora/gleba 的排列顺序不同，
+    -- 谁按下标去取谁就会把这两个星球的周期错配。
+    storage.world_reset_minutes = storage.world_reset_minutes or {
+        nauvis = 60, vulcanus = 120, fulgora = 180, gleba = 240, aquilo = 300,
+    }
+    -- 相邻星球的首次排期错开这么多分钟，避免两个世界同时重置。
+    storage.world_reset_offset_minutes = storage.world_reset_offset_minutes or 10
     storage.world_reset_at = storage.world_reset_at or {}
     storage.world_run = storage.world_run or {}
+
+    -- ══ 相位调度器（大类周期任务：科技丢失、戴森环生命周期……） ══
+    -- 用「显式相位」代替 v1 互质质数取模：周期和错开程度两个旋钮独立可调，
+    -- 详细设计见 scripts/tick.lua 顶部注释。
+    storage.cycle_minutes = storage.cycle_minutes or 60             -- 每大类任务的周期
+    storage.cycle_phase_minutes = storage.cycle_phase_minutes or 5  -- 各类之间的相位间隔
+    storage.cycle_next_at = storage.cycle_next_at or {}             -- [任务key] = 下次触发的 tick
+    -- 调度器轮询间隔（tick）。此值仅供文档和管理员参考——script.on_nth_tick 的参数
+    -- 在控制阶段加载时就要确定，此时 storage 尚不可用，故实际使用的是字面量 3600（1 分钟），
+    -- 修改此字段对轮询频率无影响。
+    storage.scheduler_interval_ticks = storage.scheduler_interval_ticks or 3600
+    storage.hud_refresh_ticks = storage.hud_refresh_ticks or 3600   -- HUD 刷新间隔（tick）
 
     -- ══ 科技丢失：P = k × 该科技的瓶子种数 / 100 ══
     storage.tech_loss_k = storage.tech_loss_k or 1
@@ -144,6 +178,11 @@ function M.ensure_defaults()
     if storage.block_blueprint_library == nil then
         storage.block_blueprint_library = false
     end
+
+    -- ══ 分级披露 ══
+    -- 累计在线满这么多小时，才在 GUI 上多看到那些"能优化但不影响上手"的详细数字
+    -- （比如戴森环精确宽度、经验贡献分项、其他玩家的戴森环列表）。见 scripts/util.lua 的 is_veteran。
+    storage.detail_hours = storage.detail_hours or 6
 
     -- ══ 调试 ══
     storage.debug = storage.debug or false

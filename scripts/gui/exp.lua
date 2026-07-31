@@ -18,10 +18,15 @@ function M.show(player)
     local inner = popup.open_popup(player, {'pw.exp-title'})
     local table_data = exp.get(player.name)
 
+    -- 新人只看进度条和"1234 / 10000"就够判断该去攒哪一项了；每项对等级的精确贡献
+    -- （log10 取整后的那个数）是给老玩家优化用的，新人不看这个也不影响上手。
+    local veteran = util.is_veteran(player)
+
     inner.add{type = 'label', caption = {'pw.exp-help'}}
 
-    -- 用 table 让引擎自己排列四列，不手工补空格——中文字宽不等于西文，混排一定会歪。
-    local grid = inner.add{type = 'table', name = 'pw_exp_table', column_count = 4}
+    -- 用 table 让引擎自己排列，不手工补空格，中文字宽不等于西文，混排一定会歪。
+    -- 老玩家多一列"贡献值"，新人只看图标/进度条/数量三列。
+    local grid = inner.add{type = 'table', name = 'pw_exp_table', column_count = veteran and 4 or 3}
 
     -- contribution 必须和 geometry.ring_level 用同一个算法（每项各自 floor 再相加），
     -- 否则这里显示的「合计」会跟真正的等级（ring.level_of，走 geometry.ring_level）对不上——
@@ -52,12 +57,18 @@ function M.show(player)
         grid.add{type = 'label', caption = {'pw.exp-amount', util.readable(amount), util.readable(threshold)}}
         -- 显示给玩家的数字一律取整（用户明确要求"直接取整"），不再保留两位小数。
         -- contribution 本身在上面就已经是整数了，这个 math.floor 只是保险，不是重复取整的那一次。
-        grid.add{type = 'label', caption = {'pw.exp-contribution', math.floor(contribution)}}
+        if veteran then
+            grid.add{type = 'label', caption = {'pw.exp-contribution', math.floor(contribution)}}
+        end
     end
 
-    local level = ring.level_of(player.name)
-    inner.add{type = 'label', caption = {'pw.exp-sum',
-        math.floor(sum), level, ring.half_width_of(player.name) * 2}}
+    -- "合计 / 等级 / 环宽"是给老玩家复核算法用的汇总数字；等级本身 HUD 上一直都能看到，
+    -- 新人不需要在这里再看一遍，也不需要环宽这种优化向数值。
+    if veteran then
+        local level = ring.level_of(player.name)
+        inner.add{type = 'label', caption = {'pw.exp-sum',
+            math.floor(sum), level, ring.half_width_of(player.name) * 2}}
+    end
     inner.add{type = 'label', caption = {'pw.exp-next',
         util.readable(math.ceil(min_remaining or 0))}}
 end

@@ -9,6 +9,12 @@ local constants = require('scripts.constants')
 local events = require('scripts.events')
 local pockets = require('scripts.pockets')
 local stamina = require('scripts.stamina')
+-- 依赖图确认：gui.init 及其全部传递依赖（popup/hud/convert/travel/exp/help/claim,
+-- 以及再往下的 pockets/chests/ring/worlds/exp/util/geometry/constants/stamina）
+-- 都不会反过来 require players.lua 或 tick.lua，不构成环，可以在顶层直接 require。
+-- 用 gui.init 而不是直接点 gui/hud.lua，是为了走和 tick.lua 一致的公共入口
+-- （gui.refresh_hud），不绕开 gui 模块自己的路由层。
+local gui = require('scripts.gui.init')
 
 local M = {}
 
@@ -79,6 +85,10 @@ events.on(defines.events.on_player_created, function(event)
     grant_starter(player)
     stamina.add(player.name, storage.stamina_initial or 10000)   -- 新玩家的初始体力池，不用干等着攒
     player.print({'pw.welcome'})
+    -- 进场立刻建 HUD，不能指望周期刷新任务顺手把它建出来——
+    -- 那个任务的间隔现在是 storage.hud_refresh_ticks（默认 3600 tick），
+    -- 全指望它的话新玩家要等一分钟才能看到任何 UI。
+    gui.refresh_hud(player)
 end)
 
 events.on(defines.events.on_player_joined_game, function(event)
@@ -93,6 +103,8 @@ events.on(defines.events.on_player_joined_game, function(event)
         -- 公共期回来的话立刻收回：箱子换回个人 id，访客请出去
         pockets.restore_on_join(player)
     end
+    -- 同上：重连/老存档升级后首次进场，同样不能干等周期任务把 HUD 建出来。
+    gui.refresh_hud(player)
 end)
 
 events.on(defines.events.on_player_respawned, function(event)

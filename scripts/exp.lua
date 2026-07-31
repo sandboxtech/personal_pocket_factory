@@ -31,10 +31,10 @@ function M.add(player_name, pack_short, amount)
     tbl[pack_short] = (tbl[pack_short] or 0) + amount
 end
 
--- 扫背包，只认 12 种科技瓶。不改动背包，纯统计，供预览和实际兑换共用，
+-- 扫某份 inventory，只认 12 种科技瓶。不改动 inventory，纯统计，供预览和实际兑换共用，
 -- 保证「看到的」和「换到的」一致。mult 是该项的品质经验系数，供配额模拟按 take 折算实际经验。
-function M.appraise(player)
-    local inventory = util.main_inventory(player)
+-- 背包兑换和箱子自动兑换（M.tick_auto_convert）都吃这同一个函数，唯一区别是 inventory 的来源。
+function M.appraise_inventory(inventory)
     if not inventory then return {}, 0 end
 
     local quality_exp = storage.quality_exp or
@@ -56,13 +56,19 @@ function M.appraise(player)
     return entries, total
 end
 
--- 配额制模拟一遍兑换：不改动任何状态。preview 和 convert 共用，保证「看到的」和「换到的」一致。
+-- 兼容旧调用点：扫玩家背包。
+function M.appraise(player)
+    return M.appraise_inventory(util.main_inventory(player))
+end
+
+-- 配额制模拟一遍兑换：不改动任何状态。preview 和实际兑换共用，保证「看到的」和「换到的」一致。
 --
--- 规则：1 点体力最多兑换该物品一组（stack_size 个）瓶子，不足一组也要花掉整点——
--- 这逼着体力池宽裕时也别攒着舍不得花，但也不会因为背包里剩几个零头就浪费一整点。
--- 配额按 entries 出现的顺序消耗，一项吃不下所有数量时会在这项截断，剩下的项 take/points 都是 0。
-local function simulate(player, quota)
-    local entries = M.appraise(player)
+-- 规则：1 点体力 = 1 个瓶子，配额（quota）就是体力点数，直接当「还能兑几个瓶子」用，
+-- 不再按物品的堆叠上限折算成组——那个"组"的概念（连带查一次物品原型才能拿到的那个字段）
+-- 整个不需要了。配额按 entries 出现的顺序消耗，一项吃不下所有数量时会在这项截断，
+-- 剩下的项 take/points 都是 0。
+local function simulate_inventory(inventory, quota)
+    local entries = M.appraise_inventory(inventory)
     local total_gain, points_used = 0, 0
     local quota_left = quota
 
@@ -71,15 +77,12 @@ local function simulate(player, quota)
     end
 
     for _, e in ipairs(entries) do
-        local proto = prototypes.item[e.item]
-        local stack_size = (proto and proto.stack_size) or 200
-        local take = math.min(quota_left * stack_size, e.count)
+        local take = math.min(quota_left, e.count)
         if take <= 0 then break end
-        local points = math.ceil(take / stack_size)
-        e.take, e.points = take, points
+        e.take, e.points = take, take   -- 1 点体力 = 1 个瓶子，花的点数就是拿走的数量
         total_gain = total_gain + take * e.mult
-        points_used = points_used + points
-        quota_left = quota_left - points
+        points_used = points_used + take
+        quota_left = quota_left - take
     end
 
     return entries, total_gain, points_used
@@ -87,37 +90,97 @@ end
 
 -- 预览：不改动任何状态。entries 里每项附带 take（这次会吃掉多少个）和 points（花几点），GUI 用。
 function M.preview(player)
-    return simulate(player, stamina.balance(player.name))
+    return simulate_inventory(util.main_inventory(player), stamina.balance(player.name))
 end
 
--- 实际兑换。配额 = 体力池点数，1 点最多兑一组。
--- 顺序：先算清楚（simulate）→ 再扣体力 → 再移除物品 → 再加经验。
+-- 兑换的核心实现：吃某份 inventory，把兑得的经验记到 player_name 名下。
+-- 背包兑换（M.convert，玩家点按钮）和箱子自动兑换（M.tick_auto_convert，周期任务吃收货箱共享库存）
+-- 共用这一份实现，不另外复制一份逻辑——两者的差别只是 inventory 从哪儿来、记账记给谁。
+--
+-- 顺序：先算清楚（simulate_inventory）→ 再扣体力 → 再移除物品 → 再加经验。
 -- 体力扣不掉就整个中止，不会出现「物品没了但没给经验」。
-function M.convert(player)
-    local inventory = util.main_inventory(player)
+--
+-- 是否重算环宽（ring.apply_growth）不在这里做：调用方各自决定什么时候调，
+-- 因为箱子自动兑换要在离线玩家身上也生效，不能假设调用时手上有一个「当前操作的 player」在场景里活跃。
+local function convert_inventory(inventory, player_name)
     if not inventory then return nil, 'pw.convert-no-character' end
 
-    local quota = stamina.balance(player.name)
-    local entries, total_gain, points_used = simulate(player, quota)
+    local quota = stamina.balance(player_name)
+    local entries, total_gain, points_used = simulate_inventory(inventory, quota)
     if #entries == 0 then return nil, 'pw.convert-nothing' end
     if total_gain <= 0 then return nil, 'pw.convert-no-stamina' end
 
-    if not stamina.spend(player.name, points_used) then return nil, 'pw.convert-no-stamina' end
+    if not stamina.spend(player_name, points_used) then return nil, 'pw.convert-no-stamina' end
 
     for _, e in ipairs(entries) do
         if e.take > 0 then
             inventory.remove({name = e.item, count = e.take, quality = e.quality})
-            M.add(player.name, e.pack, e.take * e.mult)
+            M.add(player_name, e.pack, e.take * e.mult)
         end
     end
 
     storage.exp_log = storage.exp_log or {}
-    storage.exp_log[player.name] = {entries = entries, total = total_gain, cost = points_used, tick = game.tick}
-
-    -- 兑换完立刻重算环宽并扩容，玩家点完按钮就能看见世界变宽
-    ring.apply_growth(player)
+    storage.exp_log[player_name] = {entries = entries, total = total_gain, cost = points_used, tick = game.tick}
 
     return total_gain, entries, points_used
+end
+
+-- 实际兑换（背包路径）。配额 = 体力池点数，1 点兑 1 个瓶子。
+function M.convert(player)
+    local inventory = util.main_inventory(player)
+    local total_gain, entries, points_used = convert_inventory(inventory, player.name)
+    if total_gain then
+        -- 兑换完立刻重算环宽并扩容，玩家点完按钮就能看见世界变宽
+        ring.apply_growth(player)
+    end
+    return total_gain, entries, points_used
+end
+
+-- 周期任务：把每个玩家戴森环收货箱里的科技瓶自动兑换成经验。
+--
+-- 遍历 game.players（所有玩家，不只在线的）——离线时工厂也该继续产出经验，
+-- 这正是「离线 30 小时才变公共」这条规则的价值所在：只要环还是私有的，
+-- 收货箱里囤的瓶子就该源源不断折算成经验，不用玩家守在电脑前点兑换按钮。
+--
+-- 跳过公共期玩家：storage.ring_state[玩家名] == 'public' 说明这人已经离线超过
+-- ring_public_hours，他那 12 个收货箱已经切到全服公共库存（PUBLIC_LINK_ID）了
+-- （见 chests.lua 的 expected_link_id）。这时候箱子里的货是全服共有的，
+-- 把公共的货换成缺席主人的经验是不对的——这条必须跳过，不能让自动兑换
+-- 偷偷把公共资产记到某个不在场的人头上。
+--
+-- 为什么能复用戴森环那 12 个收货箱而不怕吃空实验室的原料：
+-- 早先担心「吃收货箱会把实验室要用的瓶子也吃光」，但那是建立在【门票制、一次性吃光】
+-- 的兑换规则上的。现在是【配额制】且体力速率有上限（1 点/秒，折算每小时最多消耗
+-- 3600 个瓶子），它是一个有上限的水龙头，不是抽干水池。于是玩家的「路由决策」
+-- 变成了吞吐量竞争：他可以架机械臂从收货箱往实验室拉科技瓶，跟自动兑换抢同一批货，
+-- 谁的机械臂快、数量多，谁就能在瓶子被自动兑换吃掉之前先拉走——这个决策落在
+-- 机械臂速度和数量上，比"往哪个箱子送"更符合 Factorio 的玩法核心。
+function M.tick_auto_convert()
+    storage.ring_state = storage.ring_state or {}
+    for _, player in pairs(game.players) do
+        if storage.ring_state[player.name] ~= 'public' then
+            local surface = game.surfaces[ring.surface_name_for(player.index)]
+            if surface and surface.valid then
+                -- 12 个收货箱共享同一份 inventory（都挂着同一个 link_id），
+                -- 随便找到其中一个读它的 chest inventory 就是那份共享库存本身，
+                -- 不需要、也不应该遍历 12 个分别兑换（会把同一份货吃 12 遍）。
+                local chest = surface.find_entities_filtered{name = 'linked-chest', limit = 1}[1]
+                if chest and chest.valid then
+                    local inventory = chest.get_inventory(defines.inventory.chest)
+                    local total_gain = convert_inventory(inventory, player.name)
+                    if total_gain then
+                        -- 离线时也要让环该变宽就变宽，回来时直接看到长大的环。
+                        ring.apply_growth(player)
+                        -- 在线玩家给个提示；离线的不用管（player.print 对离线玩家仍然安全，
+                        -- 但打印出来的消息没人看得到，不如干脆跳过）。
+                        if player.connected then
+                            player.print({'pw.auto-convert-done', util.readable(total_gain)})
+                        end
+                    end
+                end
+            end
+        end
+    end
 end
 
 return M

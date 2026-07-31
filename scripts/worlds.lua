@@ -70,15 +70,33 @@ function M.derive_seed(planet_name, run)
     return h % 2147483647                     -- 保守地夹进 int32 正数范围
 end
 
--- 错峰排期：把五个星球的首次重置时间均匀铺在一个周期里。
--- 第 i 个星球的首次重置在 period × i / N 处，之后每 period 重置一次，永远保持错开。
+-- 某星球的重置周期（tick）。配置缺项时兜底 120 分钟。
+--
+-- 【按名字索引】storage.world_reset_minutes——它是个 {星球名 = 分钟} 的 table，
+-- 不是数组，绝不能按下标取，见 constants.lua 里那张表旁边的顺序警告。
+function M.period_of(planet_name)
+    local t = storage.world_reset_minutes
+    local minutes = (type(t) == 'table' and t[planet_name]) or 120
+    return minutes * constants.min_to_tick
+end
+
+-- 错峰排期：每个星球按【自己的】周期首次排期，且第 i 个星球（i 从 0 开始）
+-- 额外再往后错开 i × offset 分钟，保证从第一轮起就互不重合，不用等转完一整圈。
+--
+-- 为什么这样就永不撞车（纯算术，不需要任何运行时冲突检测；见文末的模拟脚本验证）：
+-- 五个周期（60/120/180/240/300 分钟）全都是 60 分钟的整数倍，偏移是 0/10/20/30/40 分钟。
+-- 一个星球此后【每一次】重置时刻 = 首次时刻 + k × 自己的周期（k = 0,1,2,...），
+-- 而"自己的周期"本身是 60 分钟的整数倍，所以不管 k 是多少，
+-- 这个时刻对 60 分钟取余恒等于首次时刻对 60 分钟取余，也就是恒等于
+-- （某个所有星球共享的基准偏移 + 该星球的 i × 10 分钟）对 60 取余。
+-- 五个 i × 10（0/10/20/30/40）两两不同，所以任何两个星球的重置时刻
+-- 永远落在 mod 60 的不同余数上，永远不可能重合。
 function M.schedule_all(force_respread)
     storage.world_reset_at = storage.world_reset_at or {}
-    local period = (storage.world_reset_minutes or 120) * constants.min_to_tick
-    local total = #constants.PUBLIC_PLANETS
+    local offset = (storage.world_reset_offset_minutes or 10) * constants.min_to_tick
     for i, name in ipairs(constants.PUBLIC_PLANETS) do
         if force_respread or not storage.world_reset_at[name] then
-            storage.world_reset_at[name] = game.tick + math.floor(period * i / total)
+            storage.world_reset_at[name] = game.tick + M.period_of(name) + (i - 1) * offset
         end
     end
 end
@@ -87,6 +105,19 @@ end
 function M.time_left(planet_name)
     storage.world_reset_at = storage.world_reset_at or {}
     return (storage.world_reset_at[planet_name] or game.tick) - game.tick
+end
+
+-- 五个公共世界里，最近一个到期时刻。没有任何世界排期过时返回 nil。
+-- tick.lua 拿它做门控：查"下一个到期时刻是不是已经到了"，
+-- 而不是像 v1 那样用一个和真实周期无关的取模常数（3607）去隔几十秒抽查一次。
+function M.next_reset_at()
+    storage.world_reset_at = storage.world_reset_at or {}
+    local nearest = nil
+    for _, name in ipairs(constants.PUBLIC_PLANETS) do
+        local at = storage.world_reset_at[name]
+        if at and (not nearest or at < nearest) then nearest = at end
+    end
+    return nearest
 end
 
 -- 把还留在某世界上的玩家撤回各自的口袋世界。重置前调用，避免把人清进虚空。
@@ -121,7 +152,7 @@ function M.reset_world(planet_name)
     storage.world_run[planet_name] = next_run
 
     storage.world_reset_at = storage.world_reset_at or {}
-    storage.world_reset_at[planet_name] = game.tick + (storage.world_reset_minutes or 120) * constants.min_to_tick
+    storage.world_reset_at[planet_name] = game.tick + M.period_of(planet_name)
 
     game.print({'pw.world-reset', planet_name, storage.world_run[planet_name]})
     return true
@@ -155,7 +186,7 @@ end
 -- 这是一个【独立周期任务】，不挂在星球重置上（不在 reset_world 里调）。
 -- 挂到星球重置的话，科技丢失的节奏会被五个星球的周期（1/2/3/4/5 小时）绑架，
 -- 玩家会把「地上的东西没了」和「图纸慢慢忘了」两条本来无关的压力线在心理上焊死。
--- 拆开之后各走各的周期，由 Task 12 的相位调度器按固定周期调用 M.tick_tech_loss()。
+-- 拆开之后各走各的周期，由 scripts/tick.lua 的相位调度器按固定周期调用 M.tick_tech_loss()。
 -------------------------------------------------------------------------------
 
 -- 该科技配方里有几种【不重复的】科技瓶。
@@ -212,7 +243,7 @@ function M.roll_tech_loss()
     return lost
 end
 
--- 周期任务：全服科技漏水判定一轮。由【未来的】Task 12 相位调度器按固定周期调用，
+-- 周期任务：全服科技漏水判定一轮。由 scripts/tick.lua 的相位调度器按固定周期调用，
 -- 【不】挂在星球重置上 —— 理由见本节顶部注释。
 function M.tick_tech_loss()
     local lost = M.roll_tech_loss()
@@ -224,10 +255,15 @@ end
 
 -- 距离下一次科技流失判定还剩多少 tick，供传送页面做倒计时。
 --
--- storage.tech_loss_next_at 这个字段【现在还不存在】——「下次流失在哪个 tick」
--- 是 Task 12 相位调度器的产物，本任务只负责读它，不负责写它，也不在
--- constants.ensure_defaults() 里给它设默认值：一旦在这里预置一个假值，
--- 调度器上线前 UI 会显示一个从未生效过的倒计时，反而比「未排期」更误导人。
+-- storage.tech_loss_next_at 由 scripts/tick.lua 的相位调度器维护
+-- （它是 storage.cycle_next_at['tech_loss'] 的一份镜像）。这里选择"worlds 只读、
+-- tick 负责写"而不是让本函数转调 tick.time_left('tech_loss')，是因为依赖方向
+-- 已经定死为单向：tick.lua 在模块顶层 require 了 worlds（调度 tick_tech_loss 要用到），
+-- Factorio 又不允许在函数体内 require 来延迟绕开循环，所以 worlds 绝对不能反过来
+-- require tick。选择"tick 写、worlds 读"这个方向，两边都只在顶层 require 自己
+-- 真正需要的模块，不产生新的依赖边。
+-- 也不在 constants.ensure_defaults() 里给它设默认值：一旦预置假值，
+-- 调度器还没跑第一轮时 UI 会显示一个从未生效过的倒计时，比"未排期"更误导人。
 -- 所以字段不存在时老老实实返回 nil，调用方（travel.lua）要自己处理这个「尚未排期」的分支。
 function M.tech_loss_time_left()
     local at = storage.tech_loss_next_at

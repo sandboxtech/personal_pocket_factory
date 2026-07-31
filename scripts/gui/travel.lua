@@ -1,6 +1,7 @@
 local constants = require('scripts.constants')
 local pockets = require('scripts.pockets')
 local worlds = require('scripts.worlds')
+local util = require('scripts.util')
 local popup = require('scripts.gui.popup')
 
 local M = {}
@@ -14,16 +15,21 @@ function M.show(player)
     -- 二、五个公共世界
     inner.add{type = 'label', caption = {'pw.travel-worlds-head'}}
 
+    -- 科技流失倒计时是"知道了能规划"的信息（赶在漏水前把要紧科技用上），
+    -- 新人先把"去哪个星球、多久重置"这两件事搞清楚就够了，这条只给老玩家看。
+    --
     -- 显示的是「距离下次科技流失还有多久」，不是丢失数量的期望值——
     -- 后者（worlds.expected_losses）还留着给别处用，但对玩家来说「还剩多久」
     -- 才是能直接规划行动的信息。调度器（Task 12）上线前 tech_loss_time_left
     -- 恒返回 nil，这里退化显示「尚未排期」，不瞎编一个数字。
-    local tech_left = worlds.tech_loss_time_left()
-    if tech_left then
-        local minutes = math.max(0, math.floor(tech_left / constants.min_to_tick))
-        inner.add{type = 'label', caption = {'pw.travel-tech-timer', minutes}}
-    else
-        inner.add{type = 'label', caption = {'pw.travel-tech-unscheduled'}}
+    if util.is_veteran(player) then
+        local tech_left = worlds.tech_loss_time_left()
+        if tech_left then
+            local minutes = math.max(0, math.floor(tech_left / constants.min_to_tick))
+            inner.add{type = 'label', caption = {'pw.travel-tech-timer', minutes}}
+        else
+            inner.add{type = 'label', caption = {'pw.travel-tech-unscheduled'}}
+        end
     end
 
     for _, name in ipairs(constants.PUBLIC_PLANETS) do
@@ -31,9 +37,11 @@ function M.show(player)
         local surface = game.surfaces[name]
         local left = math.max(0, math.floor(worlds.time_left(name) / constants.min_to_tick))
 
-        -- 按钮放在最前面，方便玩家一眼定位可点击项
-        local go = row.add{type = 'button', name = 'pw_go_' .. name, caption = {'pw.travel-go'}}
-        row.add{type = 'label', caption = {'pw.travel-world-row', name, left}}
+        -- 星球图标放进按钮文字里（"前往[planet=xxx]"），每个星球图标不同，
+        -- 所以 pw.travel-go-planet 做成带参数的 key，不能像 pw.travel-go 那样写死。
+        -- 行文本只剩倒计时，不再重复星球名。
+        local go = row.add{type = 'button', name = 'pw_go_' .. name, caption = {'pw.travel-go-planet', name}}
+        row.add{type = 'label', caption = {'pw.travel-world-row', left}}
         if not (surface and surface.valid) then
             go.enabled = false
             go.tooltip = {'pw.world-not-ready', name}
@@ -41,22 +49,27 @@ function M.show(player)
     end
 
     -- 三、所有玩家的戴森环：全部列出（含离线时长），但只有超过 ring_public_hours 的能进
-    local rings = pockets.all_rings()
-    if #rings > 0 then
-        inner.add{type = 'label', caption = {'pw.travel-rings-head',
-            storage.ring_public_hours or 30}}
-        for _, entry in ipairs(rings) do
-            local row = inner.add{type = 'flow', direction = 'horizontal'}
-            -- 按钮放在最前面，与上面公共世界那一段保持一致
-            local go = row.add{type = 'button', name = 'pw_go_ring_' .. entry.owner_index,
-                               caption = {'pw.travel-go'}}
-            row.add{type = 'label', caption = {'pw.travel-ring-row',
-                entry.owner_name, entry.half_width * 2, entry.idle_hours}}
-            if not entry.enterable then
-                go.enabled = false
-                -- 还差多久才可进入，给玩家一个可规划的数字
-                go.tooltip = {'pw.travel-ring-locked',
-                    math.max(0, (storage.ring_public_hours or 30) - entry.idle_hours)}
+    --
+    -- 整段只给老玩家看：新人还没攒够经验，去别人环里逛也拿不走什么，
+    -- 先把"怎么攒经验、怎么用关联箱"这些基本操作弄明白更重要。
+    if util.is_veteran(player) then
+        local rings = pockets.all_rings()
+        if #rings > 0 then
+            inner.add{type = 'label', caption = {'pw.travel-rings-head',
+                storage.ring_public_hours or 30}}
+            for _, entry in ipairs(rings) do
+                local row = inner.add{type = 'flow', direction = 'horizontal'}
+                -- 按钮放在最前面，与上面公共世界那一段保持一致
+                local go = row.add{type = 'button', name = 'pw_go_ring_' .. entry.owner_index,
+                                   caption = {'pw.travel-go'}}
+                row.add{type = 'label', caption = {'pw.travel-ring-row',
+                    entry.owner_name, entry.half_width * 2, entry.idle_hours}}
+                if not entry.enterable then
+                    go.enabled = false
+                    -- 还差多久才可进入，给玩家一个可规划的数字
+                    go.tooltip = {'pw.travel-ring-locked',
+                        math.max(0, (storage.ring_public_hours or 30) - entry.idle_hours)}
+                end
             end
         end
     end
