@@ -2,8 +2,8 @@
 -- 第一行：6 个【纯图标、无文字】的传送按钮（戴森环 + 五个公共星球），
 --   直接摆在屏幕最上方，不用先点开「传送」窗口就能一键跳转。
 -- 第二行：环等级、体力池当前值（不显示上限）、几个功能按钮。
---   原来挤在这里的体力进度条 / 可领取数值 / 领取按钮，全部搬进「领取」子窗口
---   （scripts/gui/claim.lua），这里只留一个入口按钮。
+--   原来挤在这里的体力进度条 / 可领取数值 / 领取按钮，连同兑换、经验，
+--   全部合并进一个「状态」子窗口（scripts/gui/status.lua），这里只留一个入口按钮。
 local ring = require('scripts.ring')
 local stamina = require('scripts.stamina')
 local constants = require('scripts.constants')
@@ -15,6 +15,12 @@ local M = {}
 -- 传送图标行：按钮名复用 travel.lua 已有的路由名（pw_go_ring / pw_go_<星球名>），
 -- 图标本身就是点击目标，caption 直接写死成一个不含文字的富文本图标标签，
 -- 不经过 locale——两种语言下这颗图标长得一样，没有可翻译的文字。
+--
+-- tooltip 不一样：图标行本身没有文字，玩家得靠 tooltip 才知道点下去去哪儿，
+-- 所以 tooltip 里嵌 util.planet_label（[planet=xxx] 图标 + 引擎自带的本地化星球名），
+-- 而不是甩一个裸的 surface 名（比如 "nauvis"）当纯文本——那样既没图标也不会跟着
+-- 客户端语言翻译。戴森环那个同理，用 [space-location=solar-system-edge]
+-- （见 pw.travel-home 的 locale 文本，图标已经写进那条翻译本身）。
 local function build_travel_icons(flow)
     local go_ring = flow.add{type = 'button', name = 'pw_go_ring', caption = '[space-location=solar-system-edge]'}
     go_ring.tooltip = {'pw.travel-home'}
@@ -22,12 +28,12 @@ local function build_travel_icons(flow)
     for _, name in ipairs(constants.PUBLIC_PLANETS) do
         local surface = game.surfaces[name]
         local go = flow.add{type = 'button', name = 'pw_go_' .. name, caption = '[planet=' .. name .. ']'}
-        go.tooltip = {'pw.hud-go-planet-tip', name}
+        go.tooltip = {'pw.hud-go-planet-tip', util.planet_label(name)}
         if not (surface and surface.valid) then
             -- 星球 surface 还没建出来（理论上 on_init 就建好了，这里只是防御）：
             -- 禁用图标，提示原因，和 travel.lua 弹窗里那一排按钮的兜底逻辑保持一致。
             go.enabled = false
-            go.tooltip = {'pw.world-not-ready', name}
+            go.tooltip = {'pw.world-not-ready', util.planet_label(name)}
         end
     end
 end
@@ -67,12 +73,10 @@ function M.refresh(player)
         row.add{type = 'label', caption = {'pw.hud-ring-width', ring.half_width_of(name) * 2}}
     end
 
-    row.add{type = 'button', name = 'pw_btn_claim', caption = {'pw.btn-claim'},
-             tooltip = {'pw.btn-claim-tip'}}
-    row.add{type = 'button', name = 'pw_btn_convert', caption = {'pw.btn-convert'},
-             tooltip = {'pw.btn-convert-tip'}}
-    row.add{type = 'button', name = 'pw_btn_exp', caption = {'pw.btn-exp'},
-             tooltip = {'pw.btn-exp-tip'}}
+    -- 原来的「领取／兑换／经验」三个按钮合并成一个：三块内容本来就要互相参照着看
+    -- （体力够不够兑换、兑换完经验涨没涨），分开点三次纯属多余的操作成本。
+    row.add{type = 'button', name = 'pw_btn_status', caption = {'pw.btn-status'},
+             tooltip = {'pw.btn-status-tip'}}
     row.add{type = 'button', name = 'pw_btn_help', caption = {'pw.btn-help'}}
     -- 「传送」放最后：既是最不常用的一步（图标行已经能一键直达），也和弹窗里
     -- 「传送」标签页/按钮统一放在最右边的约定对上。

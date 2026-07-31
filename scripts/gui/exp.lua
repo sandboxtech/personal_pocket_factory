@@ -1,8 +1,12 @@
+-- 「经验」内容片段：12 项经验表（图标/进度条/数值）。
+--
+-- 只导出 M.render(container, player)，不再自己开弹窗，见 claim.lua 顶部注释——
+-- 三个子窗口合并成了一个「状态」窗口（scripts/gui/status.lua），这里只管画内容。
+-- 没有按钮，所以本模块没有 on_click。
 local geometry = require('scripts.geometry')
 local exp = require('scripts.exp')
 local ring = require('scripts.ring')
 local util = require('scripts.util')
-local popup = require('scripts.gui.popup')
 
 local M = {}
 
@@ -14,19 +18,21 @@ local function next_threshold(amount)
     return 10 ^ (math.floor(math.log(amount, 10)) + 1)
 end
 
-function M.show(player)
-    local inner = popup.open_popup(player, {'pw.exp-title'})
+function M.render(container, player)
+    local header = container.add{type = 'label', caption = {'pw.exp-title'}}
+    header.style.font = 'default-bold'
+
     local table_data = exp.get(player.name)
 
     -- 新人只看进度条和"1234 / 10000"就够判断该去攒哪一项了；每项对等级的精确贡献
     -- （log10 取整后的那个数）是给老玩家优化用的，新人不看这个也不影响上手。
     local veteran = util.is_veteran(player)
 
-    inner.add{type = 'label', caption = {'pw.exp-help'}}
+    container.add{type = 'label', caption = {'pw.exp-help'}}
 
     -- 用 table 让引擎自己排列，不手工补空格，中文字宽不等于西文，混排一定会歪。
     -- 老玩家多一列"贡献值"，新人只看图标/进度条/数量三列。
-    local grid = inner.add{type = 'table', name = 'pw_exp_table', column_count = veteran and 4 or 3}
+    local grid = container.add{type = 'table', name = 'pw_exp_table', column_count = veteran and 4 or 3}
 
     -- contribution 必须和 geometry.ring_level 用同一个算法（每项各自 floor 再相加），
     -- 否则这里显示的「合计」会跟真正的等级（ring.level_of，走 geometry.ring_level）对不上——
@@ -66,10 +72,10 @@ function M.show(player)
     -- 新人不需要在这里再看一遍，也不需要环宽这种优化向数值。
     if veteran then
         local level = ring.level_of(player.name)
-        inner.add{type = 'label', caption = {'pw.exp-sum',
+        container.add{type = 'label', caption = {'pw.exp-sum',
             math.floor(sum), level, ring.half_width_of(player.name) * 2}}
     end
-    inner.add{type = 'label', caption = {'pw.exp-next',
+    container.add{type = 'label', caption = {'pw.exp-next',
         util.readable(math.ceil(min_remaining or 0))}}
 end
 

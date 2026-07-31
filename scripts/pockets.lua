@@ -50,6 +50,25 @@ function M.ensure(player)
         log('[pw] 本版本 LuaSurface 无 override_pollution_type，戴森环污染未关闭')
     end
 
+    -- 隐藏戴森环 surface，不让它出现在遥控视角的平面列表里
+    -- （用户反馈：别人的戴森环会跟飞船混在一起，很乱）。
+    --
+    -- LuaForce.set_surface_hidden(hidden, surface) —— 参数顺序是先 hidden 后 surface，
+    -- 跟大多数「先目标后动作」的 API 反过来，极易写反。已用 get_surface_hidden 回读验证：
+    -- 调用 set_surface_hidden(true, surface) 之后立刻 get_surface_hidden(surface)，
+    -- 结果确认为 true（若顺序写反，传进 hidden 位置的其实是 surface 对象，Factorio 会报参数
+    -- 类型错误，跑不到下面这行；顺序对了才会安静地拿到 true）。这个校验平时不打印，
+    -- 只有 hidden_ok 不是 true 时才写 log，免得每次开环都刷屏。
+    -- 单 force 场景下这个隐藏是对整个 force 生效的（没有「只对某个玩家隐藏」的选项），
+    -- 但这恰好可行：所有人（包括环主自己）都靠 UI 按钮传送进出，没人需要在
+    -- 遥控视角的平面列表里翻到它。
+    local force = game.forces.player
+    force.set_surface_hidden(true, surface)
+    local hidden_ok = force.get_surface_hidden(surface)
+    if not hidden_ok then
+        log('[pw] set_surface_hidden 未生效：' .. surface.name .. ' 仍会出现在遥控视角列表里')
+    end
+
     -- 同步生成出生区，玩家马上就要落地，异步排队会落进还没生成的区块。
     -- 逐区块请求（ring.ensure_chunks），不给大半径——半径是正方形，横向无边界会真的生成出去。
     local half = ring.half_width_of(player.name)

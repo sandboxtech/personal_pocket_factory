@@ -44,7 +44,9 @@ function M.show(player)
         row.add{type = 'label', caption = {'pw.travel-world-row', left}}
         if not (surface and surface.valid) then
             go.enabled = false
-            go.tooltip = {'pw.world-not-ready', name}
+            -- 禁用原因里带上星球图标 + 本地化星球名（util.planet_label），
+            -- 不甩一个裸 surface 名当纯文本。
+            go.tooltip = {'pw.world-not-ready', util.planet_label(name)}
         end
     end
 

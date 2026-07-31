@@ -2,17 +2,15 @@
 -- 全部用引擎自带 style，不引入任何图片资源，scenario 目录就能跑起来。
 --
 -- 公共辅助（open_popup / close_popup / 两个名字常量）住在叶子模块 popup.lua，
--- 而不是这里：几个窗口子模块（convert / travel / exp / help / claim）也要用这些辅助，
--- 如果放在 init.lua 里，子模块就得反过来 require init，形成循环依赖，而 Factorio 禁止用
--- “函数体内 require” 去绕开循环（只能在模块顶层 require）。
--- 抽成叶子模块从依赖图上直接消掉这个环。
+-- 而不是这里：几个窗口子模块（status / travel / help，以及 status 内部组合的
+-- claim / convert / exp）也要用这些辅助，如果放在 init.lua 里，子模块就得反过来
+-- require init，形成循环依赖，而 Factorio 禁止用"函数体内 require"去绕开循环
+-- （只能在模块顶层 require）。抽成叶子模块从依赖图上直接消掉这个环。
 local popup = require('scripts.gui.popup')
 local hud = require('scripts.gui.hud')
-local convert = require('scripts.gui.convert')
 local travel = require('scripts.gui.travel')
-local exp_window = require('scripts.gui.exp')
 local help = require('scripts.gui.help')
-local claim = require('scripts.gui.claim')
+local status = require('scripts.gui.status')
 
 local M = {}
 
@@ -35,21 +33,15 @@ function M.on_click(event)
 
     if name == 'pw_close' then
         popup.close_popup(player)
-    elseif name == 'pw_btn_convert' then
-        convert.show(player)
     elseif name == 'pw_btn_travel' then
         travel.show(player)
-    elseif name == 'pw_btn_exp' then
-        exp_window.show(player)
+    elseif name == 'pw_btn_status' then
+        status.show(player)
     elseif name == 'pw_btn_help' then
         help.show(player)
-    elseif name == 'pw_btn_claim' then
-        claim.show(player)
-    elseif convert.on_click(player, name) then
-        return
     elseif travel.on_click(player, name) then
         return
-    elseif claim.on_click(player, name) then
+    elseif status.on_click(player, name) then
         return
     end
 end

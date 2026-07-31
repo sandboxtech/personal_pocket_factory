@@ -4,6 +4,7 @@ require('scripts.players')
 require('scripts.tick')
 require('scripts.chests')
 require('scripts.commands')
+require('scripts.world_terrain')   -- 公共世界地貌斑块：模块内部已在顶层订阅 on_chunk_generated
 
 local constants = require('scripts.constants')
 local events = require('scripts.events')

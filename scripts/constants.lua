@@ -162,6 +162,60 @@ function M.ensure_defaults()
     storage.world_reset_at = storage.world_reset_at or {}
     storage.world_run = storage.world_run or {}
 
+    -- ══ 公共世界地貌斑块 ══
+    -- 每个星球一组「可用于斑块替换」的原生地块名，供 scripts/world_terrain.lua 在
+    -- on_chunk_generated 时用噪声在同组砖之间重新分布，让每轮重置后的地貌看起来不一样
+    -- （这轮草多沙少、下轮反过来），而不是无中生有地造出原版没有的新地貌。
+    --
+    -- 选取原则（严格核实过，见 task-31-report.md 逐条对照）：
+    --   1. 必须是该星球【原生】的地块原型名（本机 data/base 或 data/space-age 的
+    --      prototypes/tile 下真实存在，逐个用 grep 核对过 collision_mask）。
+    --   2. 只挑 collision_mask = tile_collision_masks.ground() 的普通地面砖——
+    --      不挑水/熔岩/氨海之类（ground() 之外的 mask，走进去要么淹死要么烧死）、
+    --      不挑人造建筑砖（比如 Fulgora 的 fulgoran-paving/walls/conduit/machinery，
+    --      那是废墟遗迹的一部分，混进"自然斑块"里会很违和）。
+    --   3. 每星球至少两种，斑块替换才有意义；核实不到足够安全砖名的星球留空表，
+    --      world_terrain.lua 会跳过（不瞎猜砖名，写错会在 set_tiles 时报错炸服）。
+    storage.world_patch_tiles = storage.world_patch_tiles or {
+        -- Nauvis：草/泥/沙/红土，data/base/prototypes/tile/tiles.lua 第 1229~1855 行。
+        nauvis = {
+            'grass-1', 'grass-2', 'grass-3', 'grass-4',
+            'dirt-1', 'dirt-2', 'dirt-3', 'dirt-4', 'dirt-5', 'dirt-6', 'dirt-7', 'dry-dirt',
+            'sand-1', 'sand-2', 'sand-3',
+            'red-desert-0', 'red-desert-1', 'red-desert-2', 'red-desert-3',
+        },
+        -- Vulcanus：火山灰/岩/褶皱地表，data/space-age/prototypes/tile/tiles-vulcanus.lua。
+        -- 明确排除 lava / lava-hot / lava-2（collision_mask = lava()，走进去会死）。
+        vulcanus = {
+            'volcanic-ash-light', 'volcanic-ash-dark', 'volcanic-ash-flats',
+            'volcanic-pumice-stones', 'volcanic-smooth-stone', 'volcanic-smooth-stone-warm',
+            'volcanic-ash-cracks', 'volcanic-folds-flat', 'volcanic-folds', 'volcanic-folds-warm',
+            'volcanic-soil-dark', 'volcanic-soil-light', 'volcanic-ash-soil',
+            'volcanic-jagged-ground', 'volcanic-cracks-hot', 'volcanic-cracks-warm', 'volcanic-cracks',
+        },
+        -- Fulgora：废土沙尘/丘/岩，data/space-age/prototypes/tile/tiles-fulgora.lua 第 185~330 行。
+        -- 明确排除 fulgoran-paving/walls/conduit/machinery（人造遗迹砖，不是自然地貌）
+        -- 和 oil-ocean-shallow/deep（油海，collision_mask 是水系）。
+        fulgora = {
+            'fulgoran-dust', 'fulgoran-dunes', 'fulgoran-sand', 'fulgoran-rock',
+        },
+        -- Gleba：自然有机土 + 高地岩石，data/space-age/prototypes/tile/tiles-gleba.lua。
+        -- 明确排除 wetland-*/gleba-deep-lake（collision_mask 是水系）、
+        -- artificial-*-soil/overgrowth-*-soil（那是"农田"语义，不是原生荒野地貌）、
+        -- lowland-*（layer_group = water-overlay，和湿地水面渲染强耦合，脱离水面语境替换会有视觉瑕疵）。
+        gleba = {
+            'natural-yumako-soil', 'natural-jellynut-soil',
+            'highland-dark-rock', 'highland-dark-rock-2', 'highland-yellow-rock', 'pit-rock',
+        },
+        -- Aquilo：雪原/冻土，data/space-age/prototypes/tile/tiles-aquilo.lua 第 252~479 行。
+        -- 明确排除 ice-rough/ice-smooth/ice-platform（collision_mask = meltable_tile，会融化改变碰撞）
+        -- 和 brash-ice/ammoniacal-ocean（水系）。
+        aquilo = {
+            'snow-flat', 'snow-crests', 'snow-lumpy', 'snow-patchy',
+            'dust-flat', 'dust-crests', 'dust-lumpy', 'dust-patchy',
+        },
+    }
+
     -- ══ 相位调度器（大类周期任务：科技丢失、戴森环生命周期……） ══
     -- 用「显式相位」代替 v1 互质质数取模：周期和错开程度两个旋钮独立可调，
     -- 详细设计见 scripts/tick.lua 顶部注释。

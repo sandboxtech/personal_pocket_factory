@@ -52,4 +52,13 @@ function M.is_veteran(player)
     return (player.online_time or 0) >= hours * constants.hour_to_tick
 end
 
+-- 星球名 → 带图标的本地化标签，形如 "[planet=nauvis] Nauvis"。
+-- GUI 里任何要展示星球名字的地方（尤其是 tooltip）都不该甩一个原始 surface 名当纯文本——
+-- 那既没图标也没跟着客户端语言翻译。space-location-name.<name> 是引擎自带的本地化 key
+-- （base/space-age 两个 mod 的 locale 都注册了这一节，Nauvis/Vulcanus/.../solar-system-edge
+-- 全部覆盖），直接嵌套引用即可，不用在本 mod 里再抄一份星球名翻译。
+function M.planet_label(name)
+    return {'', '[planet=' .. name .. '] ', {'space-location-name.' .. name}}
+end
+
 return M
