@@ -31,6 +31,21 @@ check('单种 999',        geo.ring_level({automation = 999}), 2)
 check('单种 1000',       geo.ring_level({automation = 1000}), 3)
 check('未知键被忽略',    geo.ring_level({automation = 10, ['不存在的瓶子'] = 1e9}), 1)
 
+-- 新旧公式的区分性用例：新式是「每项各自 floor 再相加」，旧式是「先加起来最后 floor 一次」。
+-- 两种瓶子各 99 点：
+--   旧式 floor(log10(99) × 2) = floor(1.9956 × 2) = floor(3.9912) = 3
+--   新式 floor(log10(99)) + floor(log10(99)) = 1 + 1 = 2
+-- 新式不允许两项的零头（0.9956 各一份）攒起来凑出第 3 级。
+check('新旧公式分歧: 两种各 99 → 新式 2（旧式会是 3）',
+    geo.ring_level({automation = 99, logistic = 99}), 2)
+
+-- 三种瓶子各 9 点：
+--   旧式 floor(log10(9) × 3) = floor(0.9542 × 3) = floor(2.8627) = 2
+--   新式 floor(log10(9)) × 3 = 0 × 3 = 0（9 < 10，每项单独看都还没到第 1 级）
+-- 这条最能说明零头不会跨项攒起来：三个 9 点在旧式下能拼出 2 级，新式下一级都拼不出来。
+check('新旧公式分歧: 三种各 9 → 新式 0（旧式会是 2）',
+    geo.ring_level({automation = 9, logistic = 9, military = 9}), 0)
+
 local all_ten = {}
 for _, k in ipairs(geo.SCIENCE_PACKS) do all_ten[k] = 10 end
 check('12 种各 10 → 12', geo.ring_level(all_ten), 12)

@@ -71,16 +71,21 @@ function M.ensure_array(surface, player)
                 chest.link_id = link_id
                 chest.destructible = false   -- 不可摧毁
                 chest.minable = false        -- 不可挖走
-                -- neutral force 和 operable = false 是两道互补的锁，缺一不可：
-                --   · neutral force 挡住「凭空造一个能用这个 link_id 的箱子」——
-                --     玩家建造的东西恒属 player force，只有脚本能创建 neutral 实体。
-                --   · operable = false 挡住「改一个已有的 neutral 箱子」——
-                --     攻击者可以【挖走】别人露天的投递口（那是可挖的），拿到 linked-chest 物品，
-                --     放下时本脚本又会把它转成 neutral，于是他手上就有了一个自己控制的 neutral 箱子。
-                --     这时若界面能开，改个 link_id 就进了别人的库存。
-                -- 代价：主人也不能直接开箱取货，得在旁边架机械臂把货拖进普通箱子。
-                -- 这是有意的 —— 这 12 个箱子本来就是「12 个并行存取口」，是给机械臂用的接口，不是给人用的界面。
-                -- 机械臂和传送带完全不受 operable 影响。
+                -- operable = false —— 挡住【管理员】的那道锁。
+                --
+                -- 原版 linked-chest 原型自带 gui_mode = "admins"（Factorio 安装目录
+                -- data/base/prototypes/entity/entities.lua），普通玩家根本打不开这个
+                -- 界面。所以防偷是两道锁分工，各管一半人群：
+                --   · gui_mode = "admins"  挡住普通玩家
+                --   · operable = false     挡住管理员
+                --   · neutral force        挡住「凭空造一个能用这个 link_id 的箱子」（玩家造的恒属 player force）
+                --
+                -- 曾经试过设成 true 让箱主能自己开箱取货，但实测发现：能打开界面的人就能编辑 link_id，
+                -- 而「能打开的人」包括所有管理员 —— 单人游戏的主机、以及小型服务器上通常不止一个的管理员。
+                -- 一旦有人（哪怕无意）改了 link_id，那个箱子就指向别人的库存了。
+                --
+                -- 代价：箱主自己也打不开自己的收货箱，取货必须靠机械臂。这是明确接受的。
+                -- 机械臂和传送带完全不受 operable 影响 —— 它只管玩家 GUI。
                 chest.operable = false
             end
         else
@@ -90,6 +95,10 @@ function M.ensure_array(surface, player)
             existing.link_id = link_id
             existing.destructible = false
             existing.minable = false
+            -- operable = false 的理由见上面新建分支里的同名注释：operable = false 是挡住
+            -- 管理员的那道锁。原型自带 gui_mode = "admins" 挡住普通玩家，但管理员（包括
+            -- 单人游戏主机）被放行。防偷是两道锁分工，operable = false 不是冗余，是唯一
+            -- 挡住管理员误改 link_id 的那道锁。防偷真正靠的还是下面的 neutral force。
             existing.operable = false
             existing.force = 'neutral'
         end
@@ -185,10 +194,9 @@ local function on_built(event)
         if not (chest and chest.valid) then return end
     end
 
-    -- neutral force 和 operable = false 是两道互补的锁，缺一不可（完整理由见 ensure_array
-    -- 里的同名注释）：这里处理的是「攻击者挖走别人的投递口、拿到 linked-chest 物品、
-    -- 自己放下」这条路径——放下时会再次经过本函数，一律转成 neutral 并锁死界面，
-    -- 他手上不会留下一个能自由改 link_id 的箱子。
+    -- neutral force 是防偷的核心：这里处理的是「攻击者挖走别人的投递口、拿到
+    -- linked-chest 物品、自己放下」这条路径——放下时会再次经过本函数，一律转成
+    -- neutral，他手上不会留下一个能自由改 link_id 的 player-force 箱子。
     chest.force = 'neutral'
 
     -- link_id 怎么算只有 rightful_link_id 这一处定义，这里不再自己拼 player_index。
@@ -198,6 +206,9 @@ local function on_built(event)
     -- 机械臂和传送带完全不受影响 —— operable 只管玩家 GUI。
     -- 代价：手动往投递口倒背包也做不到了（包括主人自己）。
     -- 这是有意的：投递口从「随手的邮筒」变成「必须建设的采集前哨」。
+    -- 这层锁不是冗余的 —— operable = false 是唯一挡住管理员误改 link_id 的那道锁
+    -- （原型自带 gui_mode = "admins" 只挡普通玩家，但放行管理员）。防偷是两道锁分工：
+    -- gui_mode = "admins" 挡普通玩家，operable = false 挡管理员，neutral force 挡攻击者造假。
     chest.operable = false
 end
 

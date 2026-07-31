@@ -20,23 +20,29 @@ function M.pack_item_name(short)
     return short .. '-science-pack'
 end
 
--- 戴森环等级 = floor( Σ max(0, log10(expᵢ)) )
+-- 戴森环等级 = Σ floor(log10(expᵢ))，i 遍历 12 种科技瓶。
 --
--- 为什么每种单独取 log10 再求和：Σ log10(expᵢ) = log10(∏ expᵢ)。
--- 因为 log10(1) = 0，任何一种瓶子没攒过，那一项就是 0 —— 这是 12 种分开记账的全部理由，
--- 它逼玩家集齐 12 种，而不是把红瓶刷到天上。
+-- 每一项【各自取整再相加】，而不是【先加起来最后取整一次】—— 两者结果真的不同：
+--   两种瓶子各 99 点：旧式 floor(1.9956 × 2) = 3；新式 1 + 1 = 2。
+-- 差别在于旧式允许多个类别的零头攒起来凑出一级（12 项各差一点点，加起来能白送好几级），
+-- 新式则每项各算各的、零头一律丢弃。
 --
--- exp ≤ 1 的项直接跳过：log10(0) 是负无穷、log10(0.5) 是负数，
--- 不夹住的话整个等级会变成 -inf 或负数，环宽会算成负的。
+-- 新式还和 UI 上那个「1234 / 10000」的进度条天生一对：
+-- 既然每项的贡献就是它自己的位数，进度条显示的就正好是「这一项离下一级还差多远」，
+-- 百分比和等级之间有了直接因果关系。旧式下那个进度条其实是骗人的 ——
+-- 你这一项走到 99%，等级可能因为别的项的零头早就涨了，也可能一直不涨。
+--
+-- exp < 1 的项跳过：log10(0) 是负无穷、log10(0.5) 是负数，
+-- 不夹住的话等级会变成 -inf 或负数，环宽会算成负的。
 function M.ring_level(exp_table)
     local sum = 0
     for _, key in ipairs(M.SCIENCE_PACKS) do
         local amount = exp_table[key] or 0
-        if amount > 1 then
-            sum = sum + math.log(amount, 10)
+        if amount >= 1 then
+            sum = sum + math.floor(math.log(amount, 10))
         end
     end
-    return math.floor(sum)
+    return sum
 end
 
 -- 半宽（tile）。环以原点为中心向两侧对称生长，每升一级两侧各外推 per_level。
@@ -46,7 +52,7 @@ end
 
 -- 给定 tile 坐标，返回该铺哪种【语义】砖，而不是具体的砖原型名。
 --
--- 为什么不直接返回 'tutorial-grid' / 'dust-lumpy' 这些真名：
+-- 为什么不直接返回具体的砖原型名（比如 'tutorial-grid'）：
 -- 本文件是纯函数模块，不能读 storage（换砖名是运营层面的事，不该逼这里去碰全局状态）。
 -- 语义值只有四种：
 --   'start'  初始那一圈（L=0 时就有的地皮）

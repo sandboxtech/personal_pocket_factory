@@ -47,7 +47,7 @@ function M.ring_map_gen(seed, ring_height)
             entity = {treat_missing_as_default = false, settings = {}},
             -- 这里的 tile 只是引擎生成区块那一瞬间的占位默认值，
             -- on_chunk_generated 马上就会用 ring.lua 的 paint_area 整片覆盖掉，
-            -- 跟环带实际铺什么砖（tutorial-grid / dust-lumpy）无关，随便选一个合法固体砖即可。
+            -- 跟环带实际铺什么砖（查 storage.ring_tiles 那张映射表）无关，随便选一个合法固体砖即可。
             tile = {treat_missing_as_default = false, settings = {['tutorial-grid'] = {}}},
             decorative = {treat_missing_as_default = false, settings = {}},
         },
@@ -112,9 +112,13 @@ function M.ensure_defaults()
     -- 语义砖名 → 实际砖原型名。geometry.lua 是纯函数、不读 storage，
     -- 所以它只返回语义值，由 ring.lua 查这张表映射成真实砖名。
     -- 好处：换砖只要改这里，不用碰那个有单元测试覆盖的核心函数。
+    -- start / grown 目前映射到同一种砖（都是 tutorial-grid），但语义区分依然保留——
+    -- geometry.tile_at 该返回哪个语义值完全不受这里影响，以后想让升级长出来的地皮
+    -- 换一种视觉效果（比如换成另一种更破旧的地砖，和初始区域区分开），只需要改这一行配置，
+    -- 不用碰 geometry.lua 那个有单元测试覆盖的核心函数。
     storage.ring_tiles = storage.ring_tiles or {
         start = 'tutorial-grid',   -- 初始那一圈：格子纹路当参考线
-        grown = 'dust-lumpy',      -- 升级长出来的：地面本身就是成长记录
+        grown = 'tutorial-grid',   -- 升级长出来的：暂时和初始区域用同一种砖
         space = 'empty-space',     -- 上下临空带
         void  = 'out-of-map',      -- 环外的墙
     }

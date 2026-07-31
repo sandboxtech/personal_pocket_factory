@@ -222,6 +222,19 @@ function M.tick_tech_loss()
     return #lost
 end
 
+-- 距离下一次科技流失判定还剩多少 tick，供传送页面做倒计时。
+--
+-- storage.tech_loss_next_at 这个字段【现在还不存在】——「下次流失在哪个 tick」
+-- 是 Task 12 相位调度器的产物，本任务只负责读它，不负责写它，也不在
+-- constants.ensure_defaults() 里给它设默认值：一旦在这里预置一个假值，
+-- 调度器上线前 UI 会显示一个从未生效过的倒计时，反而比「未排期」更误导人。
+-- 所以字段不存在时老老实实返回 nil，调用方（travel.lua）要自己处理这个「尚未排期」的分支。
+function M.tech_loss_time_left()
+    local at = storage.tech_loss_next_at
+    if not at then return nil end
+    return at - game.tick
+end
+
 -- 送玩家去某个公共世界的出生点。
 function M.travel(player, planet_name)
     local surface = game.surfaces[planet_name]

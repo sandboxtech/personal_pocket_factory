@@ -13,8 +13,18 @@ function M.show(player)
 
     -- 二、五个公共世界
     inner.add{type = 'label', caption = {'pw.travel-worlds-head'}}
-    inner.add{type = 'label', caption = {'pw.travel-tech-warn',
-        string.format('%.1f', worlds.expected_losses())}}
+
+    -- 显示的是「距离下次科技流失还有多久」，不是丢失数量的期望值——
+    -- 后者（worlds.expected_losses）还留着给别处用，但对玩家来说「还剩多久」
+    -- 才是能直接规划行动的信息。调度器（Task 12）上线前 tech_loss_time_left
+    -- 恒返回 nil，这里退化显示「尚未排期」，不瞎编一个数字。
+    local tech_left = worlds.tech_loss_time_left()
+    if tech_left then
+        local minutes = math.max(0, math.floor(tech_left / constants.min_to_tick))
+        inner.add{type = 'label', caption = {'pw.travel-tech-timer', minutes}}
+    else
+        inner.add{type = 'label', caption = {'pw.travel-tech-unscheduled'}}
+    end
 
     for _, name in ipairs(constants.PUBLIC_PLANETS) do
         local row = inner.add{type = 'flow', direction = 'horizontal'}
