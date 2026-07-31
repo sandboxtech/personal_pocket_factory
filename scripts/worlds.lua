@@ -104,6 +104,87 @@ function M.tick_check()
     return nil
 end
 
+-------------------------------------------------------------------------------
+-- 科技丢失
+--
+-- 周期性判定：P(丢失) = k × 该科技的瓶子种数 / 100。
+--
+-- 为什么挂到瓶子种数而不是固定概率：固定 5% 的话，automation 和终局科技一样容易丢，
+-- 玩家可能上线就发现造不出传送带。挂到种数上之后，科技树越深越容易漏水，地基反而最稳固。
+-- 更重要的是它形成了一个自然的高度上限而不需要任何人为封顶：
+-- 越往上侵蚀速率越高，全服最终停在「集体产能刚好补上漏水速度」的那个高度。
+-- 水位由玩家的产能决定，不是由某个写死的数字决定。
+--
+-- 这是一个【独立周期任务】，不挂在星球重置上（不在 reset_world 里调）。
+-- 挂到星球重置的话，科技丢失的节奏会被五个星球的周期（1/2/3/4/5 小时）绑架，
+-- 玩家会把「地上的东西没了」和「图纸慢慢忘了」两条本来无关的压力线在心理上焊死。
+-- 拆开之后各走各的周期，由 Task 12 的相位调度器按固定周期调用 M.tick_tech_loss()。
+-------------------------------------------------------------------------------
+
+-- 该科技配方里有几种【不重复的】科技瓶。
+function M.pack_count(tech)
+    local seen, count = {}, 0
+    for _, ingredient in pairs(tech.research_unit_ingredients or {}) do
+        if not seen[ingredient.name] then
+            seen[ingredient.name] = true
+            count = count + 1
+        end
+    end
+    return count
+end
+
+-- 某科技这次被撤销的概率。不可丢的一律返回 0。
+function M.loss_chance(tech)
+    if not tech.researched then return 0 end
+
+    local proto = tech.prototype
+    -- Trigger 科技永不丢失：它们不是「研究」出来的而是触发出来的，
+    -- 撤销后玩家没有合法途径重新拿到。
+    -- 它们天然没有 research_unit_ingredients、n=0、概率本来就是 0，
+    -- 但仍然显式跳过 —— 「规则恰好算出正确答案」和「规则明确表达意图」是两回事，
+    -- 后者才经得起改动。
+    if proto.research_trigger then return 0 end
+
+    -- 无限科技不参与：它们 researched 恒为 false、用 level 计数，改 level 会让规则难以解释。
+    if proto.max_level and proto.level and proto.level < proto.max_level then return 0 end
+
+    return (storage.tech_loss_k or 1) * M.pack_count(tech) / 100
+end
+
+-- 全表期望丢失数。纯读取、无副作用 —— GUI 会频繁调它做重置预告，
+-- 报一个「预计丢失约 X 项」比报百分比直观得多。
+function M.expected_losses()
+    local sum = 0
+    for _, tech in pairs(game.forces.player.technologies) do
+        sum = sum + M.loss_chance(tech)
+    end
+    return sum
+end
+
+-- 掷骰子，返回被撤销的科技名数组。
+-- math.random 在 Factorio 里是确定性的、多人同步安全的，不要用 os.time/os.clock 之类的东西。
+function M.roll_tech_loss()
+    local lost = {}
+    for name, tech in pairs(game.forces.player.technologies) do
+        local chance = M.loss_chance(tech)
+        if chance > 0 and math.random() < chance then
+            tech.researched = false
+            lost[#lost + 1] = name
+        end
+    end
+    return lost
+end
+
+-- 周期任务：全服科技漏水判定一轮。由【未来的】Task 12 相位调度器按固定周期调用，
+-- 【不】挂在星球重置上 —— 理由见本节顶部注释。
+function M.tick_tech_loss()
+    local lost = M.roll_tech_loss()
+    if #lost > 0 then
+        game.print({'pw.tech-lost', #lost, table.concat(lost, ', ')})
+    end
+    return #lost
+end
+
 -- 送玩家去某个公共世界的出生点。
 function M.travel(player, planet_name)
     local surface = game.surfaces[planet_name]
