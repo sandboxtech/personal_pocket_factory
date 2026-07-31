@@ -1,0 +1,22 @@
+{
+  "name": "pocket-worlds",
+  "version": "0.1.0",
+  "title": "口袋世界",
+  "author": "虚无群友",
+  "contact": "Q群293280221",
+  "homepage": "https://github.com/sandboxtech/pocket_worlds",
+  "description": "每人一个专属口袋世界，没有资源。去公共世界采集，回口袋世界加工。体力随时间恢复，用体力把物资兑换成永久经验。公共世界有限大小、错峰重置。Pocket Worlds: a private resource-less surface per player, stamina-gated item-to-exp conversion, staggered world resets.",
+  "dependencies": [
+    "base >= 2.0.0",
+    "elevated-rails >= 2.0.0",
+    "quality >= 2.0.0",
+    "space-age >= 2.0.0"
+  ],
+  "quality_required": true,
+  "space_travel_required": true,
+  "spoiling_required": true,
+  "freezing_required": true,
+  "segmented_units_required": true,
+  "expansion_shaders_required": true,
+  "factorio_version": "2.0"
+}
