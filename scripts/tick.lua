@@ -64,10 +64,18 @@ local function sync_task_mirror(key, at)
 end
 
 -- 排好某个任务的下一次触发 tick（仅当它还没排过期时，幂等）。
+--
+-- 加基础偏移（storage.cycle_base_offset_minutes）是为了和星球重置错开：
+-- 星球重置占用 mod 60 的 0/10/20/30/40 分（见 worlds.lua 的 schedule_all），
+-- 周期任务不加偏移的话相位 0/1/2 会落在 0/5/10 分，其中 0 分撞 nauvis、
+-- 10 分撞 vulcanus。加 2 分钟偏移后落在 2/7/12 分，和五个星球的偏移全部错开，
+-- 具体证明见 scripts/constants.lua 里 cycle_base_offset_minutes 旁的注释
+-- 和 task-29-report.md 里的对照表。
 local function ensure_scheduled(task)
     if not storage.cycle_next_at[task.key] then
+        local base = (storage.cycle_base_offset_minutes or 2) * constants.min_to_tick
         local phase = (storage.cycle_phase_minutes or 5) * constants.min_to_tick
-        local at = game.tick + phase * task.phase_index
+        local at = game.tick + base + phase * task.phase_index
         storage.cycle_next_at[task.key] = at
         sync_task_mirror(task.key, at)
     end

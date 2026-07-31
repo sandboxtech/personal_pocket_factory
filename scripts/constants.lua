@@ -104,7 +104,9 @@ function M.ensure_defaults()
     -- 上限直接配点数，不再按小时换算。
     storage.stamina_pending_cap = storage.stamina_pending_cap or 100000       -- 可领取池上限（点）
     storage.stamina_balance_cap = storage.stamina_balance_cap or 10000000     -- 体力池上限（点）
-    storage.stamina_initial = storage.stamina_initial or 10000                     -- 新玩家初始体力池
+    -- 新玩家初始体力池 = 可领取上限（stamina_pending_cap）的多少倍。
+    -- 写成派生倍数而不是写死的点数，调 pending_cap 时初始值自动跟着变，不用两处同步改。
+    storage.stamina_initial_multiple = storage.stamina_initial_multiple or 10
 
     -- ══ 经验（12 种，按科技瓶短名分列） ══
     storage.exp = storage.exp or {}
@@ -138,8 +140,11 @@ function M.ensure_defaults()
     -- ══ 戴森环离线生命周期 ══
     -- 两个阈值都是【每次扫描现读】的，绝不缓存成到期 tick，这样改配置能立即对全体生效。
     storage.ring_state = storage.ring_state or {}                  -- [玩家名] = 'private' / 'public'
-    storage.ring_public_hours = storage.ring_public_hours or 30    -- 离线多久后变公共
-    storage.ring_delete_hours = storage.ring_delete_hours or 50    -- 离线多久后删表面
+    storage.ring_public_hours = storage.ring_public_hours or 30    -- 离线多久后变公共（老玩家的固定上限）
+    storage.ring_delete_hours = storage.ring_delete_hours or 50    -- 离线多久后删表面（老玩家的固定上限）
+    -- 新人的阈值按累计在线时长缩放（见 pockets.public_threshold / delete_threshold），
+    -- 缩放结果不低于这个下限——避免 online_time = 0 的全新玩家一离线就立刻公共化。
+    storage.ring_min_hours = storage.ring_min_hours or 1
 
     -- ══ 公共世界 ══
     storage.public_size = storage.public_size or 2048
@@ -162,6 +167,9 @@ function M.ensure_defaults()
     -- 详细设计见 scripts/tick.lua 顶部注释。
     storage.cycle_minutes = storage.cycle_minutes or 60             -- 每大类任务的周期
     storage.cycle_phase_minutes = storage.cycle_phase_minutes or 5  -- 各类之间的相位间隔
+    storage.cycle_base_offset_minutes = storage.cycle_base_offset_minutes or 2
+        -- 周期任务的基础偏移。星球重置占用 mod 60 的 0/10/20/30/40 分，
+        -- 加 2 分钟偏移后周期任务落在 2/7/12 分，和它们全都错开。
     storage.cycle_next_at = storage.cycle_next_at or {}             -- [任务key] = 下次触发的 tick
     -- 调度器轮询间隔（tick）。此值仅供文档和管理员参考——script.on_nth_tick 的参数
     -- 在控制阶段加载时就要确定，此时 storage 尚不可用，故实际使用的是字面量 3600（1 分钟），

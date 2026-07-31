@@ -148,6 +148,28 @@ function M.idle_hours(player)
     return (game.tick - (player.last_online or 0)) / constants.hour_to_tick
 end
 
+-- 这个玩家的公共化阈值（tick）。新人按累计在线时长缩放，投满 ring_public_hours
+-- 之后才拿到老玩家那个固定上限——「你投入了多久，就受多久保护」。
+-- player.online_time 是这个存档里该玩家全部会话累计的在线 tick 数（见 util.is_veteran
+-- 旁的说明，已核实存在），新建角色是 0，靠 ring_min_hours 兜住下限，不会一离线就立刻公共化。
+function M.public_threshold(player)
+    local cap_hours = storage.ring_public_hours or 30
+    local min_hours = storage.ring_min_hours or 1
+    local played_hours = (player.online_time or 0) / constants.hour_to_tick
+    local hours = math.max(min_hours, math.min(cap_hours, played_hours))
+    return hours * constants.hour_to_tick
+end
+
+-- 这个玩家的删除阈值（tick）。同 public_threshold，倍数是 2
+-- （删除阈值 = min(ring_delete_hours, 2 × 累计在线小时数)）。
+function M.delete_threshold(player)
+    local cap_hours = storage.ring_delete_hours or 50
+    local min_hours = storage.ring_min_hours or 1
+    local played_hours = (player.online_time or 0) / constants.hour_to_tick
+    local hours = math.max(min_hours, math.min(cap_hours, played_hours * 2))
+    return hours * constants.hour_to_tick
+end
+
 -- private → public 跃迁。周期扫描和「访客点进来」两条路都走这里，保证行为一致。
 -- 已经是 public 的直接返回 false，幂等。
 function M.make_public(player)
@@ -167,14 +189,15 @@ end
 -- 存了到期 tick 的话，改配置就只对新数据生效，服务器会处于两套规则并存的状态。
 function M.tick_lifecycle()
     storage.ring_state = storage.ring_state or {}
-    local hour = constants.hour_to_tick
-    local public_at = (storage.ring_public_hours or 30) * hour
-    local delete_at = (storage.ring_delete_hours or 50) * hour
 
     for _, player in pairs(game.players) do
         if not player.connected then
             local idle = game.tick - (player.last_online or 0)
             local state = storage.ring_state[player.name]
+            -- 阈值按这个玩家的累计在线时长现算（见 public_threshold/delete_threshold 的说明），
+            -- 不缓存，改配置或玩家继续攒在线时长都能立刻反映到判定上。
+            local public_at = M.public_threshold(player)
+            local delete_at = M.delete_threshold(player)
 
             if idle >= delete_at then
                 if M.get(player) then
@@ -192,20 +215,24 @@ end
 --
 -- 列【全部】而不是只列公共的：玩家看得到别人的环有多大、离线多久、还有多久能进，
 -- 这比一个空列表有信息量得多，也让「等某人超时」变成一件可以规划的事。
--- 但 enterable 只对已超过 ring_public_hours 的为 true —— 看得到不等于进得去。
+-- 但 enterable 只对已超过【这个主人自己的】公共化阈值为 true —— 看得到不等于进得去。
+-- 阈值因人而异（新人按在线时长缩放，见 public_threshold），所以逐个玩家现算，
+-- 不能像老版本那样拿 storage.ring_public_hours 当全服统一门槛用。
+-- 顺带把这个阈值（小时）也带出来，供 GUI 算「还差多久」，不能再假设全服一个数。
 function M.all_rings()
     storage.ring_state = storage.ring_state or {}
-    local public_hours = storage.ring_public_hours or 30
     local out = {}
     for _, player in pairs(game.players) do
         if M.get(player) then
             local idle = M.idle_hours(player)
+            local public_hours = M.public_threshold(player) / constants.hour_to_tick
             out[#out + 1] = {
                 owner_name = player.name,
                 owner_index = player.index,
                 idle_hours = math.floor(idle),
                 half_width = ring.half_width_of(player.name),
                 state = storage.ring_state[player.name] or 'private',
+                public_hours = public_hours,
                 enterable = idle >= public_hours,
             }
         end

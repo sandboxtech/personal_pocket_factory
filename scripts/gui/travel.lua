@@ -48,15 +48,18 @@ function M.show(player)
         end
     end
 
-    -- 三、所有玩家的戴森环：全部列出（含离线时长），但只有超过 ring_public_hours 的能进
+    -- 三、所有玩家的戴森环：全部列出（含离线时长），但只有超过【各自的】公共化阈值的能进
     --
     -- 整段只给老玩家看：新人还没攒够经验，去别人环里逛也拿不走什么，
     -- 先把"怎么攒经验、怎么用关联箱"这些基本操作弄明白更重要。
+    --
+    -- 阈值现在因人而异（新人按在线时长缩放，见 pockets.public_threshold），
+    -- 不再有一个全服统一的数字可以放进表头，所以表头文案改成不带具体小时数；
+    -- 每一行的「还差多久」用 entry.public_hours（这个主人自己的阈值）现算。
     if util.is_veteran(player) then
         local rings = pockets.all_rings()
         if #rings > 0 then
-            inner.add{type = 'label', caption = {'pw.travel-rings-head',
-                storage.ring_public_hours or 30}}
+            inner.add{type = 'label', caption = {'pw.travel-rings-head'}}
             for _, entry in ipairs(rings) do
                 local row = inner.add{type = 'flow', direction = 'horizontal'}
                 -- 按钮放在最前面，与上面公共世界那一段保持一致
@@ -68,7 +71,7 @@ function M.show(player)
                     go.enabled = false
                     -- 还差多久才可进入，给玩家一个可规划的数字
                     go.tooltip = {'pw.travel-ring-locked',
-                        math.max(0, (storage.ring_public_hours or 30) - entry.idle_hours)}
+                        math.max(0, math.floor(entry.public_hours - entry.idle_hours))}
                 end
             end
         end
@@ -96,7 +99,8 @@ function M.on_click(player, name)
 
         -- 再校验一次门槛：按钮可能是在阈值改动前渲染的，也可能主人刚上线。
         -- UI 的 enabled 只是提示，真正的闸门在这里。
-        if pockets.idle_hours(owner) < (storage.ring_public_hours or 30) then
+        -- 阈值用这个主人自己的 public_threshold（按他的在线时长缩放），不能再假设全服统一。
+        if pockets.idle_hours(owner) < (pockets.public_threshold(owner) / constants.hour_to_tick) then
             player.print({'pw.travel-ring-locked-msg', owner.name})
             popup.close_popup(player)
             return true
