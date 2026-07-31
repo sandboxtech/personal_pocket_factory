@@ -34,10 +34,18 @@ def load_signatures(api_path):
     with open(api_path, encoding="utf-8") as fh:
         api = json.load(fh)
 
+    # takes_table 在 runtime-api v6 里挪进了 method.format，不再是顶层字段。
+    # 读错位置的话它恒为 None，108 个「具名表参数」方法会被当成位置参数来核对。
+    # 本项目目前所有表参数调用都写成 f{...} 的花括号语法、压根匹配不上下面那个正则，
+    # 所以读错也侥幸没误报——但这属于「规则恰好算出正确答案」，不能留着。
+    def takes_table(method):
+        return bool(method.get("format", {}).get("takes_table")
+                    or method.get("takes_table"))
+
     sigs = {}
     for cls in api["classes"]:
         for method in cls.get("methods", []):
-            if method.get("takes_table"):
+            if takes_table(method):
                 continue  # 具名表参数不存在「位置写反」这回事
             params = sorted(method.get("parameters", []),
                             key=lambda p: p.get("order", 0))
