@@ -52,7 +52,7 @@ end
 -- 调用点保证了这 12 个箱子必然在 player 自己的环上（surface 是 M.ensure_array 的入参、
 -- 由 pockets.ensure 传进来的就是这个玩家自己刚建好的环），rightful_link_id 的环内分支
 -- 最终也是转调 M.expected_link_id(owner)，owner 算出来就是这个 player.name ——两者在这里等价。
--- rightful_link_id 存在的意义是给「不知道箱子归属、需要现查」的场合用（on_built、粘贴纠正），
+-- rightful_link_id 存在的意义是给「不知道箱子归属、需要现查」的场合用（on_built），
 -- 这里归属是入参直接给定的，不需要绕那一圈。
 function M.ensure_array(surface, player)
     local link_id = M.expected_link_id(player.name)

@@ -1540,16 +1540,31 @@ function M.roll_tech_loss()
 end
 ```
 
-- [ ] **Step 2: 在 `reset_world` 里接上**
+- [ ] **Step 2: 科技丢失是【独立周期任务】，不挂在星球重置上**
 
-`M.reset_world` 的 `game.print({'pw.world-reset', ...})` 之前插入：
+**不要**把 `roll_tech_loss` 塞进 `reset_world`。它自成一个周期任务，
+由 Task 12 的相位调度器按固定周期（默认 1 小时）调用。
+
+理由：挂在星球重置上的话，科技丢失的节奏就被五个星球的周期（1/2/3/4/5 小时）绑架了 ——
+玩家会发现"Nauvis 一重置就掉科技"，把两件本来无关的事在心理上焊死。
+拆开之后，星球重置管"地上的东西没了"，科技漏水管"图纸慢慢忘了"，
+两条压力线各走各的，玩家也更容易分别理解和应对。
+
+在 `worlds.lua` 里导出一个供调度器调用的入口：
 
 ```lua
+-- 周期任务：全服科技漏水判定一轮。由 tick.lua 的相位调度器按固定周期调用，
+-- 【不】挂在星球重置上 —— 那会把「地上的东西没了」和「图纸慢慢忘了」两条压力线焊死。
+function M.tick_tech_loss()
     local lost = M.roll_tech_loss()
     if #lost > 0 then
         game.print({'pw.tech-lost', #lost, table.concat(lost, ', ')})
     end
+    return #lost
+end
 ```
+
+`reset_world` 保持原样，**不加**任何科技相关的调用。
 
 - [ ] **Step 3: 语法体检**
 

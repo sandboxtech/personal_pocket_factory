@@ -81,4 +81,128 @@ function M.enter(player)
     return true
 end
 
+-------------------------------------------------------------------------------
+-- 离线生命周期：30 小时变公共，50 小时删除
+--
+-- 这把「回收」从一个二元开关变成了有中间态的过程，而中间态本身是玩法 ——
+-- 弃厂不是消失，是先变成公共资产：它继续运转、产出汇进全服公共池，任人拆解取用。
+--
+-- 同时修掉了 v1 一个很粗暴的设定（离线半小时回来工厂就没了）：
+-- 现在 30 小时才开始有后果，50 小时才真的删，而且删的只是建筑，进度一点不丢。
+-------------------------------------------------------------------------------
+
+-- 把还留在某 surface 上的玩家撤回各自的戴森环。
+local function evacuate(surface, except_name)
+    for _, p in pairs(game.connected_players) do
+        if p.surface == surface and p.name ~= except_name then
+            p.print({'pw.ring-evacuated'})
+            M.enter(p)
+        end
+    end
+end
+
+-- 删除某人的戴森环。经验一点不动，下次上线重新长出来。
+function M.delete_ring(player)
+    if not (player and player.valid) then return false, 'pw.cmd-no-player' end
+    if player.connected then return false, 'pw.cmd-player-online' end
+
+    local surface = M.get(player)
+    if not (surface and surface.valid) then return false, 'pw.cmd-no-ring' end
+
+    evacuate(surface, nil)
+    game.delete_surface(surface)
+
+    storage.ring_state = storage.ring_state or {}
+    storage.ring_state[player.name] = nil
+    storage.ring_applied_half = storage.ring_applied_half or {}
+    storage.ring_applied_half[player.name] = nil
+    return true
+end
+
+-- 玩家上线：若他的环在公共期，立刻收回。
+function M.restore_on_join(player)
+    storage.ring_state = storage.ring_state or {}
+    if storage.ring_state[player.name] ~= 'public' then return end
+
+    storage.ring_state[player.name] = 'private'
+    chests.set_array_link(player, player.index)
+
+    local surface = M.get(player)
+    if surface and surface.valid then
+        evacuate(surface, player.name)   -- 把还在里面逛的访客请出去
+    end
+    player.print({'pw.ring-reclaimed'})
+end
+
+-- 离线多久了（小时）。在线玩家返回 0。
+function M.idle_hours(player)
+    if player.connected then return 0 end
+    return (game.tick - (player.last_online or 0)) / constants.hour_to_tick
+end
+
+-- private → public 跃迁。周期扫描和「访客点进来」两条路都走这里，保证行为一致。
+-- 已经是 public 的直接返回 false，幂等。
+function M.make_public(player)
+    storage.ring_state = storage.ring_state or {}
+    if storage.ring_state[player.name] == 'public' then return false end
+    if not M.get(player) then return false end
+
+    storage.ring_state[player.name] = 'public'
+    chests.set_array_link(player, constants.PUBLIC_LINK_ID)
+    game.print({'pw.ring-public', player.name})
+    return true
+end
+
+-- 周期任务：扫描离线玩家，做 private → public 和 public → 删除 两个跃迁。
+--
+-- 【关键】阈值每次现读、现算 idle，绝不缓存成「到期 tick」。
+-- 存了到期 tick 的话，改配置就只对新数据生效，服务器会处于两套规则并存的状态。
+function M.tick_lifecycle()
+    storage.ring_state = storage.ring_state or {}
+    local hour = constants.hour_to_tick
+    local public_at = (storage.ring_public_hours or 30) * hour
+    local delete_at = (storage.ring_delete_hours or 50) * hour
+
+    for _, player in pairs(game.players) do
+        if not player.connected then
+            local idle = game.tick - (player.last_online or 0)
+            local state = storage.ring_state[player.name]
+
+            if idle >= delete_at then
+                if M.get(player) then
+                    M.delete_ring(player)
+                    game.print({'pw.ring-deleted', player.name})
+                end
+            elseif idle >= public_at and state == 'private' then
+                M.make_public(player)
+            end
+        end
+    end
+end
+
+-- 所有存在的戴森环，供传送窗口列出。
+--
+-- 列【全部】而不是只列公共的：玩家看得到别人的环有多大、离线多久、还有多久能进，
+-- 这比一个空列表有信息量得多，也让「等某人超时」变成一件可以规划的事。
+-- 但 enterable 只对已超过 ring_public_hours 的为 true —— 看得到不等于进得去。
+function M.all_rings()
+    storage.ring_state = storage.ring_state or {}
+    local public_hours = storage.ring_public_hours or 30
+    local out = {}
+    for _, player in pairs(game.players) do
+        if M.get(player) then
+            local idle = M.idle_hours(player)
+            out[#out + 1] = {
+                owner_name = player.name,
+                owner_index = player.index,
+                idle_hours = math.floor(idle),
+                half_width = ring.half_width_of(player.name),
+                state = storage.ring_state[player.name] or 'private',
+                enterable = idle >= public_hours,
+            }
+        end
+    end
+    return out
+end
+
 return M

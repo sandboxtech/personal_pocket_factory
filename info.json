@@ -1,11 +1,11 @@
 {
-  "name": "pocket-worlds",
-  "version": "0.1.0",
-  "title": "口袋世界",
+  "name": "personal-pocket-factory",
+  "version": "0.2.0",
+  "title": "戴森环计划",
   "author": "虚无群友",
   "contact": "Q群293280221",
-  "homepage": "https://github.com/sandboxtech/pocket_worlds",
-  "description": "每人一个专属口袋世界，没有资源。去公共世界采集，回口袋世界加工。体力随时间恢复，用体力把物资兑换成永久经验。公共世界有限大小、错峰重置。Pocket Worlds: a private resource-less surface per player, stamina-gated item-to-exp conversion, staggered world resets.",
+  "homepage": "https://github.com/sandboxtech/personal_pocket_factory",
+  "description": "每人一条专属戴森环，没有资源，宽度由 12 种科技瓶经验的对数和决定。木箱放到公共世界变成关联投递口，直通环中央的收货箱阵。五个星球各有周期地重置，重置时全服随机失去已研究科技。离线 30 小时环变公共，50 小时删除，但经验永不丢失。Personal Pocket Factory: a private ring per player whose width is the log-sum of twelve science-pack experience ledgers, linked-chest logistics across planets, per-planet world resets with server-wide tech decay.",
   "dependencies": [
     "base >= 2.0.0",
     "elevated-rails >= 2.0.0",

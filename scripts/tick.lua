@@ -21,9 +21,9 @@ events.on(defines.events.on_tick, function()
         worlds.tick_check()
     end
 
-    -- 约每分钟：回收离线超时玩家的口袋世界，这是存档体积的主要闸门
+    -- 约每分钟：戴森环离线生命周期（30h 变公共 / 50h 删除）
     if tick % 3613 == 0 then
-        pockets.reclaim_offline()
+        pockets.tick_lifecycle()
     end
 
     -- 约每 10 秒：刷新在线玩家的 HUD（体力和倒计时都在走）

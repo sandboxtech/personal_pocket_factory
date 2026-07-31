@@ -11,14 +11,15 @@ local pockets = require('scripts.pockets')
 
 local M = {}
 
--- 禁掉的输入动作：蓝图库相关的全套。
--- 禁蓝图库不是附加要求，是定期重置玩法的地基：
--- 允许蓝图库的话，重置后 Ctrl+V 一秒恢复布局，重置就只剩"重跑一遍物流"，成长和养成全被架空。
-local BLOCKED_ACTIONS = {
-    'open_blueprint_library_gui', 'grab_blueprint_record', 'import_blueprint', 'import_blueprint_string',
-    'import_blueprints_filtered', 'delete_blueprint_library', 'delete_blueprint_record', 'drop_blueprint_record',
-    'reassign_blueprint',
-}
+-- 本场景【默认不禁用玩家任何权限】，包括蓝图库。
+--
+-- v1 禁蓝图的理由是「允许蓝图库的话，重置后 Ctrl+V 一秒恢复布局，重置就只剩重跑一遍物流」。
+-- 但这条理由在本版已经不成立：重置的是【公共世界】，而玩家的产线在【戴森环】里，
+-- 本来就不会被重置。公共世界上只有采集前哨，那本来就该是能快速重铺的东西。
+-- 本版真正的持续压力来自科技漏水和弃厂公有化，蓝图一个都加速不了。
+--
+-- 关联箱的防偷因此不能靠权限组，改用实体级的 operable = false，见 chests.lua。
+local BLOCKED_ACTIONS = {}
 
 local GROUP_NAME = 'pw_default'
 
@@ -82,10 +83,13 @@ events.on(defines.events.on_player_joined_game, function(event)
     local player = game.players[event.player_index]
     if not player then return end
     assign_group(player)
-    -- 离线期间口袋被回收过的话，这里重建。玩家不会掉进一个已经不存在的 surface。
+    -- 离线期间环被回收过的话，这里重建。玩家不会掉进一个已经不存在的 surface。
     if not pockets.get(player) then
         pockets.enter(player)
-        player.print({'pw.pocket-rebuilt'})
+        player.print({'pw.ring-rebuilt'})
+    else
+        -- 公共期回来的话立刻收回：箱子换回个人 id，访客请出去
+        pockets.restore_on_join(player)
     end
 end)
 
