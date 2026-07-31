@@ -10,18 +10,6 @@ function M.readable(x)
     return tostring(math.floor(x))
 end
 
--- 经验 → 等级：level = floor(sqrt(exp))。与 endfield_factorio 同口径，方便老玩家理解。
--- 平方曲线意味着升到 N 级需要 N² 经验，前期快、后期慢，且没有等级上限。
-function M.level_of(exp)
-    return math.floor(math.sqrt(math.max(0, exp or 0)))
-end
-
--- 升到下一级还差多少经验。GUI 进度条用。
-function M.exp_to_next(exp)
-    local lv = M.level_of(exp)
-    return (lv + 1) * (lv + 1) - (exp or 0)
-end
-
 -- 文本进度条：frac ∈ [0,1] → '████░░░░░░'。GUI 里不用图片资源就能画条。
 function M.progress_bar(frac, width)
     width = width or 10

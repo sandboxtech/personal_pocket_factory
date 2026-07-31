@@ -1,20 +1,13 @@
 -- 全局常量 + storage 默认值的【唯一出生地】。
 -- ensure_defaults() 在 on_init / on_configuration_changed / 每次世界重置时都会调用，幂等、不覆盖已调过的值。
 -- 各模块使用点只保留 nil 兜底（老存档继承时 storage 字段可能还没补上，直接索引会崩）。
+local geometry = require('scripts.geometry')
+
 local M = {}
 
 M.sec_to_tick = 60
 M.min_to_tick = 60 * 60
 M.hour_to_tick = 60 * 60 * 60
-
--- 品质 → 经验倍率。兑换时物品价值乘以这个系数，高品质物资更值钱。
-M.quality_exp = {
-    normal = 1,
-    uncommon = 2,
-    rare = 3,
-    epic = 4,
-    legendary = 5,
-}
 
 -- 公共世界：本场景只用太空时代的五个真星球。
 -- 用真星球（而不是 game.create_surface 造裸 surface）是为了拿到星球原型级机制：
@@ -25,15 +18,24 @@ M.PUBLIC_PLANETS = {'nauvis', 'vulcanus', 'gleba', 'fulgora', 'aquilo'}
 -- 口袋世界的表面名前缀。surface 名不能带特殊字符，玩家名直接拼在后面。
 M.POCKET_PREFIX = 'pocket_'
 
--- 口袋世界的地图生成设置：没有任何资源、没有敌人、有限大小。
--- 关键点在 autoplace_settings 的 treat_missing_as_default = false：
--- 它让所有【未显式列出】的 entity/tile/decorative 都不生成，比逐个把 autoplace_controls 调成 0 更彻底。
--- width/height 是引擎级硬边界（MapGenSettings 字段，单位 tile，0 表示无限），
--- 边界外是 out-of-map，引擎根本不生成区块，存档体积天然受控，不需要自己铺虚空。
-function M.pocket_map_gen(size, seed)
+-- 公共库存的 link_id。player.index 从 1 开始，所以 0 永不碰撞。
+-- 全服只有一个公共库存：所有弃厂的产出汇进同一个池子。
+M.PUBLIC_LINK_ID = 0
+
+-- 戴森环的地图生成设置。
+--
+-- 关键点一：height 是【引擎级硬边界】，|y| >= height/2 的区块根本不生成，零成本零代码。
+--   128 是精确的 4 个区块行（-64..-32 / -32..0 / 0..32 / 32..64），每行都被用满。
+--   取 96 的话占用区块数一模一样，却有一半空间被 out-of-map 浪费掉。
+-- 关键点二：width = 0 表示【无限】，横向边界交给 ring.lua 手工涂 out-of-map 的墙。
+--   引擎硬边界只能是矩形、而且在已存在的 surface 上能不能改大是未验证的，
+--   所以横向的可增长边界必须自己涂。
+-- 关键点三：treat_missing_as_default = false 让所有未显式列出的 entity/tile/decorative
+--   都不生成，比逐个把 autoplace_controls 调成 0 更彻底，也不会漏掉 mod 新增的资源。
+function M.ring_map_gen(seed, ring_height)
     return {
-        width = size,
-        height = size,
+        width = 0,
+        height = ring_height,
         seed = seed,
         water = 0,
         starting_area = 1,
@@ -43,49 +45,90 @@ function M.pocket_map_gen(size, seed)
         cliff_settings = {cliff_elevation_interval = 0, cliff_elevation_0 = 0},
         autoplace_settings = {
             entity = {treat_missing_as_default = false, settings = {}},
-            tile = {treat_missing_as_default = false, settings = {['grass-1'] = {}}},
+            tile = {treat_missing_as_default = false, settings = {['concrete'] = {}}},
             decorative = {treat_missing_as_default = false, settings = {}},
         },
         property_expression_names = {
-            -- 地形整体压平：口袋世界不需要地形起伏，平地最好摆产线。
-            elevation = '50',
+            elevation = '50',   -- 地形压平，环带不需要起伏
         },
     }
 end
 
-function M.ensure_defaults()
-    -- ══ 体力（沿用 endfield 的星星机制：随时间恢复、离线也攒、可花费） ══
-    storage.stamina = storage.stamina or {}                        -- [玩家名] = {amount=当前体力, last=上次结算tick}
-    storage.stamina_per_hour = storage.stamina_per_hour or 60      -- 每小时恢复多少点（60 = 1分钟1点）
-    storage.stamina_cap = storage.stamina_cap or 1440              -- 体力上限（1440 = 攒满24小时就不再涨）
+-- 把 v1 的 storage.exp[玩家名]（一个 number）迁移成 12 键 table。
+-- 老经验整个折算进 automation 一项 —— 那时候经验不分种类，归给第一种最不容易引起争议。
+-- 幂等：已经是 table 的不动。
+local function migrate_exp()
+    storage.exp = storage.exp or {}
+    for name, value in pairs(storage.exp) do
+        if type(value) == 'number' then
+            local fresh = {}
+            for _, key in ipairs(geometry.SCIENCE_PACKS) do fresh[key] = 0 end
+            fresh.automation = value
+            storage.exp[name] = fresh
+        end
+    end
+end
 
-    -- ══ 经验 ══
-    storage.exp = storage.exp or {}                                -- [玩家名] = 累计经验（整数）。等级 = floor(sqrt(exp))
-    storage.exp_log = storage.exp_log or {}                        -- [玩家名] = 最近一次兑换的明细，供 GUI 回显
+-- 保证某玩家的经验表存在且 12 个键齐全。新增瓶种时也靠它补齐。
+function M.ensure_exp_table(player_name)
+    storage.exp = storage.exp or {}
+    local tbl = storage.exp[player_name]
+    if type(tbl) ~= 'table' then
+        tbl = {}
+        storage.exp[player_name] = tbl
+    end
+    for _, key in ipairs(geometry.SCIENCE_PACKS) do
+        tbl[key] = tbl[key] or 0
+    end
+    return tbl
+end
+
+function M.ensure_defaults()
+    -- ══ 体力（沿用 v1：随时间恢复、离线也攒、到上限停） ══
+    storage.stamina = storage.stamina or {}
+    storage.stamina_per_hour = storage.stamina_per_hour or 60
+    storage.stamina_cap = storage.stamina_cap or 1440
+
+    -- ══ 经验（12 种，按科技瓶短名分列） ══
+    storage.exp = storage.exp or {}
+    storage.exp_log = storage.exp_log or {}
+    migrate_exp()                                                  -- v1 的 number 转 table
 
     -- ══ 兑换 ══
-    storage.convert_cost = storage.convert_cost or 1               -- 每次兑换消耗的体力
-    storage.convert_batch = storage.convert_batch or 200           -- 单次兑换最多处理多少种物品，防一次点击卡顿
-    storage.item_value = storage.item_value or nil                 -- 物品价值表缓存，由 values.lua 首次使用时建
+    storage.convert_cost = storage.convert_cost or 1               -- 门票制：固定扣这么多体力
+    storage.quality_exp = storage.quality_exp or
+        {normal = 1, uncommon = 3, rare = 5, epic = 7, legendary = 9}
 
-    -- ══ 口袋世界 ══
-    storage.pocket_size = storage.pocket_size or 256               -- 边长（tile）。256 = 8×8 区块
-    storage.pocket_run = storage.pocket_run or {}                  -- [玩家名] = 该口袋世界创建时的轮次，用于判断是否该重置
-    storage.pocket_keep_offline_minutes = storage.pocket_keep_offline_minutes or 30
-                                                                   -- 离线超过这么久，口袋世界被回收（delete_surface）
+    -- ══ 戴森环形状 ══
+    storage.ring_height = storage.ring_height or 128               -- 环带总高，同时是 map_gen 的 height
+    storage.ring_concrete_height = storage.ring_concrete_height or 64  -- 中间可建带，其余均分给上下的临空带
+    storage.ring_base_half_width = storage.ring_base_half_width or 32  -- L=0 时的半宽
+    storage.ring_per_level = storage.ring_per_level or 16          -- 每升一级两侧各外推多少 tile
+
+    -- ══ 戴森环离线生命周期 ══
+    -- 两个阈值都是【每次扫描现读】的，绝不缓存成到期 tick，这样改配置能立即对全体生效。
+    storage.ring_state = storage.ring_state or {}                  -- [玩家名] = 'private' / 'public'
+    storage.ring_public_hours = storage.ring_public_hours or 30    -- 离线多久后变公共
+    storage.ring_delete_hours = storage.ring_delete_hours or 50    -- 离线多久后删表面
 
     -- ══ 公共世界 ══
-    storage.public_size = storage.public_size or 2048              -- 公共世界边长（tile）。2048 = 64×64 区块
-    storage.world_reset_minutes = storage.world_reset_minutes or 120   -- 每个公共世界的重置周期（分钟）
-    storage.world_reset_at = storage.world_reset_at or {}          -- [星球名] = 下次重置的 tick。错峰的真相源
-    storage.world_run = storage.world_run or {}                    -- [星球名] = 该星球已重置过几轮
+    storage.public_size = storage.public_size or 2048
+    storage.world_reset_minutes = storage.world_reset_minutes or 120
+    storage.world_reset_at = storage.world_reset_at or {}
+    storage.world_run = storage.world_run or {}
 
-    -- ══ 权限 ══
-    storage.block_blueprint_library = storage.block_blueprint_library ~= false
-                                                                   -- 默认 true：禁蓝图库，重置才有意义
+    -- ══ 科技丢失：P = k × 该科技的瓶子种数 / 100 ══
+    storage.tech_loss_k = storage.tech_loss_k or 1
+
+    -- ══ 权限：默认【不禁用任何东西】，包括蓝图库 ══
+    -- v1 禁蓝图的理由（重置后 Ctrl+V 一秒恢复布局）在本版已不成立：
+    -- 重置的是公共世界，而玩家的产线在戴森环里，本来就不会被重置。
+    if storage.block_blueprint_library == nil then
+        storage.block_blueprint_library = false
+    end
 
     -- ══ 调试 ══
-    storage.debug = storage.debug or false                         -- true 时向管理员打印每次生成/重置的细节
+    storage.debug = storage.debug or false
 end
 
 return M

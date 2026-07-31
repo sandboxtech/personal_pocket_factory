@@ -275,7 +275,7 @@ return M
 lua5.4 tests/test_geometry.lua
 ```
 
-预期：`32/32 通过`，退出码 0
+预期：`34/34 通过`，退出码 0
 
 - [ ] **Step 5: 语法体检**
 
@@ -469,7 +469,8 @@ grep -rn "level_of\|exp_to_next\|quality_exp\|pocket_map_gen\|pocket_size\|conve
   - `ring.owner_name_of(surface)` → `string?`（surface 名反查玩家名）
   - `ring.level_of(player_name)` → `integer`
   - `ring.half_width_of(player_name)` → `integer`
-  - `ring.paint_area(surface, x_from, x_to, half_width)` → 无返回，逐 tile 写砖
+  - `ring.ensure_chunks(surface, x_from, x_to, y_from, y_to)` → 无返回，逐区块请求生成并同步落地
+  - `ring.paint_area(surface, x_from, x_to, y_from, y_to, half_width)` → 无返回，涂 `[x_from,x_to) × [y_from,y_to)` 这个矩形
   - `ring.on_chunk_generated(event)` → 事件处理器
   - `ring.apply_growth(player)` → `boolean`（等级变了并重涂过返回 true）
   - `pockets.surface_name(player)` / `pockets.get(player)` / `pockets.ensure(player)` / `pockets.enter(player)`（签名不变，行为改）
@@ -525,13 +526,35 @@ function M.half_width_of(player_name)
         storage.ring_per_level or 16)
 end
 
--- 把 [x_from, x_to) × 整个环高 的区域按几何规则涂一遍。
+-- 保证 [x_from, x_to) × [y_from, y_to) 覆盖到的区块都已生成。
+--
+-- 逐区块请求而不是给一个大半径：request_to_generate_chunks 的 radius 是【正方形】的，
+-- 纵向多请求无所谓（引擎的 height 硬边界会挡掉），横向却会真的生成出去 ——
+-- 用「按环高算出来的半径」去请求，每个新玩家会白造上百个废区块。
+-- 存档体积是本项目的头号约束，不能这么浪费。
+function M.ensure_chunks(surface, x_from, x_to, y_from, y_to)
+    local cx_from = math.floor(x_from / 32)
+    local cx_to   = math.floor((x_to - 1) / 32)
+    local cy_from = math.floor(y_from / 32)
+    local cy_to   = math.floor((y_to - 1) / 32)
+    for cx = cx_from, cx_to do
+        for cy = cy_from, cy_to do
+            surface.request_to_generate_chunks({cx * 32 + 16, cy * 32 + 16}, 0)
+        end
+    end
+    surface.force_generate_chunk_requests()
+end
+
+-- 把 [x_from, x_to) × [y_from, y_to) 这个矩形按几何规则涂一遍。
 -- 一次 set_tiles 批量提交，不要逐 tile 调（那样会触发一堆事件、慢得多）。
-function M.paint_area(surface, x_from, x_to, half_width)
+--
+-- y 范围是参数而不是「总是整条环高」：调用方按【单个区块】的范围调用，
+-- 这样绝不会往还没生成的兄弟区块里写 tile。
+-- （写不进去的话是静默失败 —— 双层 pcall 加一小时去重播报会把它盖住，
+--   表现是某些玩家某些行的砖是错的，几乎不可能被发现。）
+function M.paint_area(surface, x_from, x_to, y_from, y_to, half_width)
     local ring_height = storage.ring_height or 128
     local concrete_height = storage.ring_concrete_height or 64
-    local y_from = -math.floor(ring_height / 2)
-    local y_to = math.floor(ring_height / 2)
 
     local tiles = {}
     for x = x_from, x_to - 1 do
@@ -549,7 +572,8 @@ function M.paint_area(surface, x_from, x_to, half_width)
     end
 end
 
--- 新区块生成时涂砖。引擎保证只有 |y| < ring_height/2 的区块会来，所以纵向不用额外判断。
+-- 新区块生成时涂砖。只涂【本区块自己】那 32×32，不碰兄弟区块。
+-- 引擎保证只有 |y| < ring_height/2 的区块会来，所以纵向不用额外夹紧。
 function M.on_chunk_generated(event)
     local surface = event.surface
     if not M.is_ring_surface(surface) then return end
@@ -557,8 +581,10 @@ function M.on_chunk_generated(event)
     if not owner then return end
 
     local area = event.area
-    M.paint_area(surface, math.floor(area.left_top.x), math.floor(area.right_bottom.x),
-                 M.half_width_of(owner))
+    M.paint_area(surface,
+        math.floor(area.left_top.x), math.floor(area.right_bottom.x),
+        math.floor(area.left_top.y), math.floor(area.right_bottom.y),
+        M.half_width_of(owner))
 end
 
 -- 等级变化后扩容。只涂【新增的那两条竖带】，不碰玩家已经建过东西的老地皮。
@@ -576,15 +602,28 @@ function M.apply_growth(player)
     local new_half = M.half_width_of(player.name)
     if new_half <= old_half then return false end
 
-    -- 先保证新地皮的区块存在，否则 set_tiles 写不进去
     local ring_height = storage.ring_height or 128
-    for _, x in ipairs({-new_half, new_half - 1}) do
-        surface.request_to_generate_chunks({x, 0}, math.ceil(ring_height / 32) + 1)
-    end
-    surface.force_generate_chunk_requests()
+    local y_half = math.floor(ring_height / 2)
 
-    M.paint_area(surface, -new_half, -old_half, new_half)   -- 左侧新增带
-    M.paint_area(surface, old_half, new_half, new_half)     -- 右侧新增带
+    -- 新增竖带要处理两种区块，缺一不可：
+    --   · 这次才生成的 —— on_chunk_generated 会自动涂（那时 half_width_of 已读到新等级）
+    --   · 本来就存在的 —— 之前作为环外溢出被生成、涂成 out-of-map，不会再触发事件，必须显式重涂
+    -- 所以生成之后仍要显式涂一遍（幂等，两种情况都覆盖）。
+    local function grow_strip(x_from, x_to)
+        if x_from >= x_to then return end
+        M.ensure_chunks(surface, x_from, x_to, -y_half, y_half)
+        -- 逐区块行涂，避免一次跨多个区块行写入
+        local cy_from = math.floor(-y_half / 32)
+        local cy_to   = math.floor((y_half - 1) / 32)
+        for cy = cy_from, cy_to do
+            local y0 = math.max(-y_half, cy * 32)
+            local y1 = math.min(y_half, (cy + 1) * 32)
+            M.paint_area(surface, x_from, x_to, y0, y1, new_half)
+        end
+    end
+
+    grow_strip(-new_half, -old_half)   -- 左侧新增带
+    grow_strip(old_half, new_half)     -- 右侧新增带
 
     storage.ring_applied_half[player.name] = new_half
     return true
@@ -641,10 +680,12 @@ function M.ensure(player)
     -- 而戴森环是每个玩家一份 surface，人一多就是一堆永远不会有虫子来的污染云在白烧 UPS。
     surface.override_pollution_type = {}
 
-    -- 同步生成出生区，玩家马上就要落地，异步排队会落进还没生成的区块
+    -- 同步生成出生区，玩家马上就要落地，异步排队会落进还没生成的区块。
+    -- 按环的【实际尺寸】逐区块请求，不要给一个按环高算出来的大半径 ——
+    -- radius 是正方形的，横向会真的生成出去（见 ring.ensure_chunks 的注释）。
     local half = ring.half_width_of(player.name)
-    surface.request_to_generate_chunks({0, 0}, math.ceil((storage.ring_height or 128) / 32) + 1)
-    surface.force_generate_chunk_requests()
+    local y_half = math.floor((storage.ring_height or 128) / 2)
+    ring.ensure_chunks(surface, -half, half, -y_half, y_half)
 
     storage.ring_applied_half = storage.ring_applied_half or {}
     storage.ring_applied_half[player.name] = half
@@ -798,6 +839,10 @@ local LINKED = 'linked-chest'
 -- 12 个同 link_id 的箱子共享的是【同一个库存】，所以这不是 12 倍容量，
 -- 是 12 个并行存取口 —— 12 个机械臂可以同时从同一批货里抓取，
 -- 而单个箱子只能被有限几个机械臂围住。用箱子数量换吞吐量，不是换容量。
+--
+-- 这 12 个箱子和公共世界的投递口一样是 operable = false，
+-- 也就是说它们是【给机械臂用的接口】，不是【给人用的界面】——
+-- 主人取货要在旁边架机械臂把货拖进普通箱子。理由见 ensure_array 里的注释。
 local function array_positions()
     local out = {}
     for _, x in ipairs({-1, 0}) do
@@ -833,10 +878,15 @@ function M.ensure_array(surface, player)
                 chest.link_id = link_id
                 chest.destructible = false   -- 不可摧毁
                 chest.minable = false        -- 不可挖走
-                -- operable 保持默认 true：主人必须能打开取货
+                chest.operable = false       -- 见下方说明
             end
         else
+            -- 已存在的也要重设全部属性，否则老存档里建好的箱阵不会被修上。
+            -- 「幂等」不能只是「不重复创建」，还得是「反复调用后状态一致」。
             existing.link_id = link_id
+            existing.destructible = false
+            existing.minable = false
+            existing.operable = false
         end
     end
 end
@@ -1188,7 +1238,8 @@ game.print('(80,0)砖(应为out-of-map): ' .. p.surface.get_tile(80, 0).name)
   - `pockets.delete_ring(player)` → `boolean, 错误key?`
   - `pockets.restore_on_join(player)` → 无返回
   - `pockets.tick_lifecycle()` → 无返回
-  - `pockets.public_rings()` → 数组 `{ {owner_name=, owner_index=, idle_hours=, half_width=} ... }`（GUI 用）
+  - `pockets.make_public(player)` → `boolean`，执行 private→public 跃迁（周期扫描和"访客进入"两条路都调它）
+  - `pockets.all_rings()` → 数组 `{ {owner_name=, owner_index=, idle_hours=, half_width=, state=, enterable=} ... }`（GUI 用）
 
 - [ ] **Step 1: 在 `scripts/pockets.lua` 追加生命周期代码**
 
@@ -1248,6 +1299,25 @@ function M.restore_on_join(player)
     player.print({'pw.ring-reclaimed'})
 end
 
+-- 离线多久了（小时）。在线玩家返回 0。
+function M.idle_hours(player)
+    if player.connected then return 0 end
+    return (game.tick - (player.last_online or 0)) / constants.hour_to_tick
+end
+
+-- private → public 跃迁。周期扫描和「访客点进来」两条路都走这里，保证行为一致。
+-- 已经是 public 的直接返回 false，幂等。
+function M.make_public(player)
+    storage.ring_state = storage.ring_state or {}
+    if storage.ring_state[player.name] == 'public' then return false end
+    if not M.get(player) then return false end
+
+    storage.ring_state[player.name] = 'public'
+    chests.set_array_link(player, constants.PUBLIC_LINK_ID)
+    game.print({'pw.ring-public', player.name})
+    return true
+end
+
 -- 周期任务：扫描离线玩家，做 private → public 和 public → 删除 两个跃迁。
 --
 -- 【关键】阈值每次现读、现算 idle，绝不缓存成「到期 tick」。
@@ -1269,26 +1339,31 @@ function M.tick_lifecycle()
                     game.print({'pw.ring-deleted', player.name})
                 end
             elseif idle >= public_at and state == 'private' then
-                storage.ring_state[player.name] = 'public'
-                chests.set_array_link(player, constants.PUBLIC_LINK_ID)
-                game.print({'pw.ring-public', player.name})
+                M.make_public(player)
             end
         end
     end
 end
 
--- 当前处于公共期的所有戴森环。传送窗口用。
-function M.public_rings()
+-- 所有存在的戴森环，供传送窗口列出。
+--
+-- 列【全部】而不是只列公共的：玩家看得到别人的环有多大、离线多久、还有多久能进，
+-- 这比一个空列表有信息量得多，也让「等某人超时」变成一件可以规划的事。
+-- 但 enterable 只对已超过 ring_public_hours 的为 true —— 看得到不等于进得去。
+function M.all_rings()
     storage.ring_state = storage.ring_state or {}
-    local hour = constants.hour_to_tick
+    local public_hours = storage.ring_public_hours or 30
     local out = {}
     for _, player in pairs(game.players) do
-        if storage.ring_state[player.name] == 'public' and M.get(player) then
+        if M.get(player) then
+            local idle = M.idle_hours(player)
             out[#out + 1] = {
                 owner_name = player.name,
                 owner_index = player.index,
-                idle_hours = math.floor((game.tick - (player.last_online or 0)) / hour),
+                idle_hours = math.floor(idle),
                 half_width = ring.half_width_of(player.name),
+                state = storage.ring_state[player.name] or 'private',
+                enterable = idle >= public_hours,
             }
         end
     end
@@ -1816,17 +1891,23 @@ function M.show(player)
         end
     end
 
-    -- 三、公共戴森环（没有就整段隐藏，不显示空标题）
-    local public = pockets.public_rings()
-    if #public > 0 then
-        inner.add{type = 'label', caption = {'pw.travel-public-head'}}
-        for _, entry in ipairs(public) do
+    -- 三、所有玩家的戴森环：全部列出（含离线时长），但只有超过 ring_public_hours 的能进
+    local rings = pockets.all_rings()
+    if #rings > 0 then
+        inner.add{type = 'label', caption = {'pw.travel-rings-head',
+            storage.ring_public_hours or 30}}
+        for _, entry in ipairs(rings) do
             local row = inner.add{type = 'flow', direction = 'horizontal'}
-            local left = math.max(0, (storage.ring_delete_hours or 50) - entry.idle_hours)
-            row.add{type = 'label', caption = {'pw.travel-public-row',
-                entry.owner_name, entry.half_width * 2, entry.idle_hours, left}}
-            row.add{type = 'button', name = 'pw_go_public_' .. entry.owner_index,
-                    caption = {'pw.travel-go'}}
+            row.add{type = 'label', caption = {'pw.travel-ring-row',
+                entry.owner_name, entry.half_width * 2, entry.idle_hours}}
+            local go = row.add{type = 'button', name = 'pw_go_ring_' .. entry.owner_index,
+                               caption = {'pw.travel-go'}}
+            if not entry.enterable then
+                go.enabled = false
+                -- 还差多久才可进入，给玩家一个可规划的数字
+                go.tooltip = {'pw.travel-ring-locked',
+                    math.max(0, (storage.ring_public_hours or 30) - entry.idle_hours)}
+            end
         end
     end
 end
@@ -1840,16 +1921,32 @@ function M.on_click(player, name)
         return true
     end
 
-    local public_index = string.match(name, '^pw_go_public_(%d+)$')
-    if public_index then
-        local owner = game.players[tonumber(public_index)]
+    -- 别人的戴森环。必须在下面的 'pw_go_' 前缀判断【之前】匹配，
+    -- 否则会被当成星球名 'ring_7' 传给 worlds.travel。
+    local ring_index = string.match(name, '^pw_go_ring_(%d+)$')
+    if ring_index then
+        local owner = game.players[tonumber(ring_index)]
         local surface = owner and pockets.get(owner)
-        if surface and surface.valid then
-            local pos = surface.find_non_colliding_position('character', {4, 0}, 64, 1) or {4, 0}
-            player.teleport(pos, surface)
-        else
-            player.print({'pw.travel-public-gone'})
+        if not (surface and surface.valid) then
+            player.print({'pw.travel-ring-gone'})
+            gui.close_popup(player)
+            return true
         end
+
+        -- 再校验一次门槛：按钮可能是在阈值改动前渲染的，也可能主人刚上线。
+        -- UI 的 enabled 只是提示，真正的闸门在这里。
+        if pockets.idle_hours(owner) < (storage.ring_public_hours or 30) then
+            player.print({'pw.travel-ring-locked-msg', owner.name})
+            gui.close_popup(player)
+            return true
+        end
+
+        -- 惰性公共化：有人真的走进来的那一刻才切 link_id，不必等周期扫描。
+        -- make_public 幂等，已经是 public 的直接返回 false。
+        pockets.make_public(owner)
+
+        local pos = surface.find_non_colliding_position('character', {4, 0}, 64, 1) or {4, 0}
+        player.teleport(pos, surface)
         gui.close_popup(player)
         return true
     end
@@ -2056,6 +2153,386 @@ grep -rn "values\|level_of\|exp_to_next\|pocket_size\|convert_batch\|item_value\
 ```
 
 预期：语法全过、单测全过、grep 只剩 `storage.quality_exp`（那是新字段，合法）。
+
+---
+
+## Task 12: 每星球独立重置周期 + 周期任务错开
+
+用户在执行中追加的需求 R1/R2。原设计是五星球统一 120 分钟、按 `period × i / N` 错峰；
+改成**每星球各有自己的周期**，首次排期再错开 10 分钟。
+
+**Files:**
+- Modify: `scripts/constants.lua`（新增两个配置项，删掉标量 `world_reset_minutes`）
+- Modify: `scripts/worlds.lua`（`schedule_all` / `reset_world` 读新配置）
+- Modify: `scripts/tick.lua`（周期任务模数再错开）
+
+**Interfaces:**
+- Consumes: `constants.PUBLIC_PLANETS`、`constants.min_to_tick`
+- Produces: `worlds.period_of(planet_name)` → 该星球的重置周期（tick）
+
+- [ ] **Step 1: `constants.ensure_defaults()` 换掉重置周期配置**
+
+把 `storage.world_reset_minutes = storage.world_reset_minutes or 120` 这一行替换成：
+
+```lua
+    -- 每星球各自的重置周期（分钟）。周期长短即难度分层：
+    -- nauvis 一小时一轮，是新人的练兵场；aquilo 五小时一轮，值得长线经营。
+    storage.world_reset_minutes = storage.world_reset_minutes or {
+        nauvis = 60, vulcanus = 120, fulgora = 180, gleba = 240, aquilo = 300,
+    }
+    -- 相邻星球的首次排期错开这么多分钟，避免两个世界同时重置。
+    storage.world_reset_offset_minutes = storage.world_reset_offset_minutes or 10
+```
+
+**注意类型变了**（number → table）。加一段迁移，和 `migrate_exp` 同样的写法：
+
+```lua
+-- v2 早期版本里 world_reset_minutes 是个标量（统一周期）。改成 per-planet table 之后，
+-- 老存档继承过来会是 number，直接当表索引会返回 nil，重置周期会退化成兜底值。
+local function migrate_world_periods()
+    if type(storage.world_reset_minutes) == 'number' then
+        storage.world_reset_minutes = nil   -- 交给 ensure_defaults 重建成默认表
+    end
+end
+```
+
+在 `ensure_defaults` 里、设默认值**之前**调用它。
+
+- [ ] **Step 2: `scripts/worlds.lua` 读新配置**
+
+新增：
+
+```lua
+-- 某星球的重置周期（tick）。配置缺项时兜底成 120 分钟。
+function M.period_of(planet_name)
+    local table_or_nil = storage.world_reset_minutes
+    local minutes = (type(table_or_nil) == 'table' and table_or_nil[planet_name]) or 120
+    return minutes * constants.min_to_tick
+end
+```
+
+`schedule_all` 整体替换成：
+
+```lua
+-- 错峰排期：每个星球用自己的周期，首次排期再按索引错开 offset 分钟。
+--
+-- 为什么这样就永不撞车：五个周期（60/120/180/240/300 分钟）都是 60 的整数倍，
+-- 而偏移是 0/10/20/30/40 分钟，所以第 i 个星球的重置时刻恒定落在 mod 60 的第 (10i) 个余数上，
+-- 各自不同、永远不会重合。不需要任何运行时的冲突检测。
+function M.schedule_all(force_respread)
+    storage.world_reset_at = storage.world_reset_at or {}
+    local offset = (storage.world_reset_offset_minutes or 10) * constants.min_to_tick
+    for i, name in ipairs(constants.PUBLIC_PLANETS) do
+        if force_respread or not storage.world_reset_at[name] then
+            storage.world_reset_at[name] = game.tick + M.period_of(name) + (i - 1) * offset
+        end
+    end
+end
+```
+
+`reset_world` 里排下一轮那一行改成：
+
+```lua
+    storage.world_reset_at[planet_name] = game.tick + M.period_of(planet_name)
+```
+
+- [ ] **Step 3: `scripts/tick.lua` 把周期任务错开**
+
+模数全部取**互质的质数**，让几件重活几乎不会落在同一 tick 上：
+
+```lua
+    if tick % 3607 == 0 then worlds.tick_check() end        -- 公共世界重置
+    if tick % 3613 == 0 then pockets.tick_lifecycle() end   -- 戴森环 30h/50h
+    if tick % 3617 == 0 then ships.tick_lifecycle() end     -- 飞船 50h（Task 13）
+    if tick % 613 == 0 then                                 -- HUD 刷新
+        for _, player in pairs(game.connected_players) do gui.refresh_hud(player) end
+    end
+```
+
+（3607 / 3613 / 3617 / 613 都是质数，两两互质。这个技巧沿用 v1 的做法。）
+
+- [ ] **Step 4: 语法体检**
+
+```bash
+luac -p scripts/constants.lua scripts/worlds.lua scripts/tick.lua && echo "语法 OK"
+lua5.4 tests/test_geometry.lua
+```
+
+- [ ] **Step 5: 排期正确性验证（纯 Lua，不需要游戏）**
+
+写一个临时脚本验证「永不撞车」这个论断，跑完删掉：
+
+```lua
+-- 模拟 30 天，检查有没有两个星球在同一分钟重置
+local period = {nauvis=60, vulcanus=120, fulgora=180, gleba=240, aquilo=300}
+local order = {'nauvis','vulcanus','gleba','fulgora','aquilo'}  -- 注意与 PUBLIC_PLANETS 同序
+local fire = {}
+for i, name in ipairs(order) do
+    local t = period[name] + (i-1)*10
+    while t < 60*24*30 do
+        fire[t] = fire[t] or {}
+        table.insert(fire[t], name)
+        t = t + period[name]
+    end
+end
+local collisions = 0
+for t, names in pairs(fire) do
+    if #names > 1 then collisions = collisions + 1 end
+end
+print('30 天内撞车次数（应为 0）:', collisions)
+```
+
+预期：`30 天内撞车次数（应为 0）: 0`
+
+**注意 `PUBLIC_PLANETS` 的顺序是 `{nauvis, vulcanus, gleba, fulgora, aquilo}`，
+而用户给的周期是 fulgora 3h / gleba 4h** —— 两者顺序不同。
+配置表按**名字**索引，不要按下标，否则 gleba 和 fulgora 的周期会对调。
+
+---
+
+## Task 13: 飞船（太空平台）子系统
+
+用户在执行中追加的需求 R3/R4/R5。
+
+**Files:**
+- Create: `scripts/ships.lua`
+- Modify: `scripts/constants.lua`（配置项）
+- Modify: `scripts/gui/travel.lua`（建船按钮 + 飞船列表）
+- Modify: `scripts/tick.lua`（已在 Task 12 Step 3 接好）
+- Modify: `control.lua`（require ships）
+
+**Interfaces:**
+- Consumes: `pockets.enter`（撤人用）、`constants.hour_to_tick`
+- Produces:
+  - `ships.of(player)` → `LuaSpacePlatform?`
+  - `ships.create(player)` → `platform` 或 `nil, 错误key`
+  - `ships.all()` → 数组 `{ {owner_name=, index=, age_hours=, left_hours=} ... }`
+  - `ships.tick_lifecycle()` → 无返回
+
+### 为什么必须用 UI 按钮建船，而不是让玩家走原版流程
+
+查证结论（Task 13 的全部设计都建立在这上面）：
+
+- `LuaForce.create_space_platform{name?, planet, starter_pack}` → `LuaSpacePlatform?`
+- `LuaForce.platforms` :: `dictionary[uint32 → LuaSpacePlatform]`（含待删除的）
+- `LuaSpacePlatform.name` **可写**；`.surface` 只读；`.destroy(ticks?)`「Schedules for deletion」
+- **引擎没有「平台被创建」的事件，也没有创建时间戳**
+
+没有创建事件意味着拿不到「谁造的」——平台是 force 级的，单 force 下引擎根本不记录归属。
+于是「每人最多 1 艘」和「以玩家名命名」都无从执行。
+**脚本自己造船**是唯一能同时拿到归属和创建时刻的路径。
+
+- [ ] **Step 1: `constants.ensure_defaults()` 加配置**
+
+```lua
+    -- ══ 飞船（太空平台） ══
+    storage.ships = storage.ships or {}                      -- [玩家名] = {index=平台index, created=创建tick}
+    storage.ship_life_hours = storage.ship_life_hours or 50  -- 寿命，到点先撤人再摧毁
+    storage.ship_width = storage.ship_width or 256           -- 引擎级硬边界，和戴森环同一个思路
+    storage.ship_height = storage.ship_height or 512
+    storage.ship_home_planet = storage.ship_home_planet or 'nauvis'   -- 默认环绕哪颗星球
+    storage.ship_require_starter_pack = storage.ship_require_starter_pack ~= false
+                                                             -- 默认 true：建船要消耗一个太空平台起步包
+```
+
+- [ ] **Step 2: 创建 `scripts/ships.lua`**
+
+```lua
+-- 飞船（太空平台）。全服公有、每人最多一艘、以玩家名命名、50 小时寿命。
+--
+-- 为什么由脚本造而不是让玩家走原版星图流程：
+--   引擎【没有「平台被创建」的事件，也没有创建时间戳】。平台是 force 级的，
+--   单 force 下引擎根本不记录「谁造的」。于是「每人最多 1 艘」和「以玩家名命名」都无从执行。
+--   脚本自己造是唯一能同时拿到归属和创建时刻的路径。
+--
+-- 「全服公有」是单 force 的自然结果，不需要额外代码：平台属于 force，所有人本来就都能上去。
+-- 以玩家名命名只是为了让人知道该找谁，不代表所有权。
+local constants = require('scripts.constants')
+
+local M = {}
+
+local STARTER_PACK = 'space-platform-starter-pack'
+
+-- 取某玩家名下的平台。记录还在但平台已消失（被引擎删了）时顺手清账。
+function M.of(player)
+    storage.ships = storage.ships or {}
+    local record = storage.ships[player.name]
+    if not record then return nil end
+    local platform = player.force.platforms[record.index]
+    if not (platform and platform.valid) then
+        storage.ships[player.name] = nil
+        return nil
+    end
+    return platform
+end
+
+-- 给飞船 surface 套上引擎级硬边界。和戴森环同一个思路：
+-- 边界外是 out-of-map，引擎根本不生成区块，存档体积从根上受控。
+-- 注意必须在区块生成之前设好，改 map_gen_settings 只影响【之后生成】的区块。
+local function apply_bounds(platform)
+    local surface = platform.surface
+    if not (surface and surface.valid) then return end
+    local mgs = surface.map_gen_settings
+    mgs.width = storage.ship_width or 256
+    mgs.height = storage.ship_height or 512
+    surface.map_gen_settings = mgs
+end
+
+-- 造一艘。成功返回 platform，失败返回 nil 加一个本地化 key。
+function M.create(player)
+    if M.of(player) then return nil, 'pw.ship-already-have' end
+
+    local inventory = player.get_main_inventory()
+    local need_pack = storage.ship_require_starter_pack ~= false
+    if need_pack then
+        if not (inventory and inventory.get_item_count(STARTER_PACK) > 0) then
+            return nil, 'pw.ship-no-pack'
+        end
+    end
+
+    local planet = storage.ship_home_planet or 'nauvis'
+    local platform = player.force.create_space_platform{
+        name = player.name,
+        planet = planet,
+        starter_pack = STARTER_PACK,
+    }
+    if not platform then return nil, 'pw.ship-create-failed' end
+
+    if need_pack then inventory.remove{name = STARTER_PACK, count = 1} end
+
+    apply_bounds(platform)
+
+    storage.ships = storage.ships or {}
+    storage.ships[player.name] = {index = platform.index, created = game.tick}
+    game.print({'pw.ship-created', player.name})
+    return platform
+end
+
+-- 所有在册飞船，供 GUI 列出。顺手清掉已失效的记录。
+function M.all()
+    storage.ships = storage.ships or {}
+    local life = (storage.ship_life_hours or 50) * constants.hour_to_tick
+    local out = {}
+    for name, record in pairs(storage.ships) do
+        local player = game.players[name]
+        local platform = player and M.of(player)
+        if platform then
+            local age = game.tick - (record.created or game.tick)
+            out[#out + 1] = {
+                owner_name = name,
+                index = record.index,
+                age_hours = math.floor(age / constants.hour_to_tick),
+                left_hours = math.max(0, math.floor((life - age) / constants.hour_to_tick)),
+            }
+        end
+    end
+    return out
+end
+
+-- 周期任务：摧毁超龄的飞船。先撤人再炸，和戴森环 50 小时删除同一套规矩。
+function M.tick_lifecycle()
+    storage.ships = storage.ships or {}
+    local life = (storage.ship_life_hours or 50) * constants.hour_to_tick
+
+    for name, record in pairs(storage.ships) do
+        if game.tick - (record.created or game.tick) >= life then
+            local player = game.players[name]
+            local platform = player and M.of(player)
+            if platform then
+                local pockets = require('scripts.pockets')
+                local surface = platform.surface
+                if surface and surface.valid then
+                    for _, p in pairs(game.connected_players) do
+                        if p.surface == surface then
+                            p.print({'pw.ship-evacuated', name})
+                            pockets.enter(p)
+                        end
+                    end
+                end
+                platform.destroy()
+                game.print({'pw.ship-expired', name})
+            end
+            storage.ships[name] = nil
+        end
+    end
+end
+
+return M
+```
+
+- [ ] **Step 3: `scripts/gui/travel.lua` 加建船按钮和飞船列表**
+
+在星球那一段之后、戴森环列表之前插入：
+
+```lua
+    -- 飞船：自己没有就显示建造按钮，有了就显示剩余寿命
+    local ships = require('scripts.ships')
+    inner.add{type = 'label', caption = {'pw.travel-ships-head', storage.ship_life_hours or 50}}
+    if ships.of(player) then
+        inner.add{type = 'label', caption = {'pw.ship-have'}}
+    else
+        inner.add{type = 'button', name = 'pw_ship_create', caption = {'pw.ship-create'},
+                  tooltip = {'pw.ship-create-tip'}}
+    end
+    for _, entry in ipairs(ships.all()) do
+        local row = inner.add{type = 'flow', direction = 'horizontal'}
+        row.add{type = 'label', caption = {'pw.travel-ship-row',
+            entry.owner_name, entry.age_hours, entry.left_hours}}
+    end
+```
+
+`M.on_click` 里加：
+
+```lua
+    if name == 'pw_ship_create' then
+        local ships = require('scripts.ships')
+        local platform, err = ships.create(player)
+        if not platform then player.print({err or 'pw.ship-create-failed'}) end
+        gui.close_popup(player)
+        return true
+    end
+```
+
+- [ ] **Step 4: `control.lua` 加载 ships，`tick.lua` 接周期任务**
+
+`control.lua` 加 `local ships = require('scripts.ships')`（或纯 require）；
+`tick.lua` 的周期调度已在 Task 12 Step 3 写好，这里只需确认 `ships` 已 require。
+
+- [ ] **Step 5: 语法体检**
+
+```bash
+luac -p scripts/ships.lua scripts/gui/travel.lua scripts/tick.lua control.lua && echo "语法 OK"
+```
+
+- [ ] **Step 6: 游戏内验证（推迟到场景可加载之后）**
+
+```lua
+/c local ships = require('scripts.ships')
+local p = game.player
+p.insert{name='space-platform-starter-pack', count=2}
+local s1 = ships.create(p)
+game.print('第一艘(应成功): ' .. tostring(s1 ~= nil))
+game.print('平台名(应为玩家名): ' .. tostring(s1 and s1.name))
+game.print('起步包应被扣掉1个，剩: ' .. p.get_main_inventory().get_item_count('space-platform-starter-pack'))
+local s2, err = ships.create(p)
+game.print('第二艘(应失败): ' .. tostring(s2) .. ' 错误=' .. tostring(err))
+storage.ship_life_hours = 0
+ships.tick_lifecycle()
+game.print('寿命归零后(应为nil): ' .. tostring(ships.of(p)))
+storage.ship_life_hours = 50
+```
+
+预期：第一艘成功、名字是玩家名、起步包扣 1、第二艘失败并返回 `pw.ship-already-have`、
+寿命归零后被摧毁。
+
+**未验证的风险**：`create_space_platform` 的 `starter_pack` 参数是
+「建平台所需的起步包」，脚本调用时引擎会不会**自己**从某处扣除、
+或者要求玩家先发射火箭——文档没写清楚。若脚本调用不消耗任何东西，
+那我们手动 `inventory.remove` 就是唯一的成本来源；若引擎也扣一次，会变成扣两次。
+**实测时务必核对起步包数量的变化。**
+
+另外 `apply_bounds` 改 `map_gen_settings` 只影响之后生成的区块，
+而平台创建时可能已经生成了起始区块——实测时确认边界是否真的生效。
 
 ---
 
