@@ -3,6 +3,7 @@
 require('scripts.players')
 require('scripts.tick')
 require('scripts.chests')
+require('scripts.commands')
 
 local constants = require('scripts.constants')
 local events = require('scripts.events')

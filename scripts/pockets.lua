@@ -34,13 +34,21 @@ function M.ensure(player)
     surface.freeze_daytime = true
     surface.show_clouds = false
 
-    -- 关掉污染。注意是 {} 不是 nil ——
-    -- Pollutant 概念是 { pollutant = LuaAirbornePollutantPrototype? }，文档写明 "If nil, pollution is disabled"，
+    -- 关掉污染。
+    --
+    -- 注意赋的是 {} 不是 nil ——
+    -- Pollutant 概念是 { pollutant = LuaAirbornePollutantPrototype? }，
+    -- 文档写明 "If nil, pollution is disabled"，
     -- 而 override_pollution_type = nil 的含义是【不覆盖、跟随默认】，是个静默的 no-op。
     -- 因为 Lua 里 {pollutant = nil} 求值就是空表 {}，两种写法长得几乎一样、含义完全相反。
-    -- 值得做的理由不只是清掉地图上的红云：污染扩散是 per-surface 每 tick 算的，
-    -- 而戴森环是每个玩家一份 surface，人一多就是一堆永远不会有虫子来的污染云在白烧 UPS。
-    surface.override_pollution_type = {}
+    --
+    -- 但这个字段是较新版本才有的，老版本上赋值会直接抛错。
+    -- 所以用 pcall 包起来，失败就退回「不关污染」并写 log —— 污染对本场景没有玩法影响
+    -- （环里 no_enemies_mode = true，没有虫子可招），关掉只是省 UPS，不值得为它崩服。
+    local ok = pcall(function() surface.override_pollution_type = {} end)
+    if not ok then
+        log('[pw] 本版本 LuaSurface 无 override_pollution_type，戴森环污染未关闭')
+    end
 
     -- 同步生成出生区，玩家马上就要落地，异步排队会落进还没生成的区块。
     -- 逐区块请求（ring.ensure_chunks），不给大半径——半径是正方形，横向无边界会真的生成出去。

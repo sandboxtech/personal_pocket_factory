@@ -9,7 +9,7 @@
 local events = require('scripts.events')
 local pockets = require('scripts.pockets')
 local worlds = require('scripts.worlds')
-local gui = require('scripts.gui')
+local gui = require('scripts.gui.init')
 
 local M = {}
 
