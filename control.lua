@@ -11,6 +11,7 @@ local events = require('scripts.events')
 local worlds = require('scripts.worlds')
 local players = require('scripts.players')
 local ring = require('scripts.ring')
+local pockets = require('scripts.pockets')
 
 -- 区块生成时涂砖。走 events 总线而不是直接 script.on_event，避免和别处的订阅互相覆盖。
 events.on(defines.events.on_chunk_generated, events.safe('chunk', ring.on_chunk_generated))
@@ -49,4 +50,7 @@ script.on_configuration_changed(function()
     unlock_all_planets()
     worlds.ensure_surfaces()
     worlds.schedule_all(false) -- 已排期的世界保持原计划，只给新增的补排
+    -- 把已存在的戴森环全部重新 ensure 一遍，补齐半成品环缺失的收货箱阵。
+    -- 老存档升级正是这类修复该发生的时机：玩家不用重连，加载完就已经是修好的。
+    pockets.repair_all()
 end)

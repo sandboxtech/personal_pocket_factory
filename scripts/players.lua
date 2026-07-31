@@ -103,6 +103,10 @@ events.on(defines.events.on_player_joined_game, function(event)
         pockets.enter(player)
         player.print({'pw.ring-rebuilt'})
     else
+        -- 环还在，但不代表它是【完整】的：曾经出现过「环建到一半抛错、12 个收货箱缺席」
+        -- 的存档（见 pockets.hide_surface 的注释）。pockets.ensure 现在是幂等自愈的，
+        -- 每次进场跑一遍就能把这类半成品环补齐，代价可以忽略。
+        pockets.ensure(player)
         -- 公共期回来的话立刻收回：箱子换回个人 id，访客请出去
         pockets.restore_on_join(player)
     end

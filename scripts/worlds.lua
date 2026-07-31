@@ -201,10 +201,25 @@ function M.pack_count(tech)
     return count
 end
 
--- 某科技这次被撤销的概率。不可丢的一律返回 0。
-function M.loss_chance(tech)
-    if not tech.researched then return 0 end
+-- 这个科技能不能「掉一级」——等级制科技（无限科技，以及有限的多级科技）专用。
+--
+-- proto.level 是这个科技的【起始等级】，tech.level 是它【当前所在的等级】。
+-- 二者相等说明一级都还没研究出来，没有东西可掉；tech.level 更大才说明
+-- 玩家已经把它推高过，有已研究的级数可以往回退。
+--
+-- LuaTechnology.level 是可写的，引擎文档原话：
+-- "For level-based technology writing to this is the same as researching the
+--  technology to the previous level."
+-- 也就是说 tech.level = tech.level - 1 恰好等价于「退掉最近研究的那一级」，
+-- 不需要自己去撤销任何加成效果。
+function M.can_downgrade(tech)
+    local proto = tech.prototype
+    local base = proto.level or 1
+    return (tech.level or base) > base
+end
 
+-- 某科技这次被侵蚀的概率。没有东西可丢的一律返回 0。
+function M.loss_chance(tech)
     local proto = tech.prototype
     -- Trigger 科技永不丢失：它们不是「研究」出来的而是触发出来的，
     -- 撤销后玩家没有合法途径重新拿到。
@@ -213,8 +228,15 @@ function M.loss_chance(tech)
     -- 后者才经得起改动。
     if proto.research_trigger then return 0 end
 
-    -- 无限科技不参与：它们 researched 恒为 false、用 level 计数，改 level 会让规则难以解释。
-    if proto.max_level and proto.level and proto.level < proto.max_level then return 0 end
+    -- 「有东西可丢」的两种形态，缺一不可：
+    --   · 普通科技：researched == true，丢法是整个撤销；
+    --   · 等级制/无限科技：researched 恒为 false（永远还能再研究一级），
+    --     但只要当前等级高于起始等级，就有已研究的级数可以掉。
+    -- 无限科技【参与】侵蚀是有意的：它们往往是后期产能的主要来源，
+    -- 若整类豁免，玩家把产能全压在无限科技上就能完全绕开漏水机制。
+    -- 丢法改成「降一级」而不是「清零」，是因为无限科技根本没有「未研究」这个状态可回退，
+    -- 而且清零几十级的采矿产能在体感上是灭顶之灾，不是持续压力。
+    if not (tech.researched or M.can_downgrade(tech)) then return 0 end
 
     return (storage.tech_loss_k or 1) * M.pack_count(tech) / 100
 end
@@ -229,28 +251,45 @@ function M.expected_losses()
     return sum
 end
 
--- 掷骰子，返回被撤销的科技名数组。
+-- 掷骰子。返回两个数组：被整个撤销的科技名、被降级的科技（带降到第几级）。
 -- math.random 在 Factorio 里是确定性的、多人同步安全的，不要用 os.time/os.clock 之类的东西。
+--
+-- 【判定顺序】先问「能不能降级」，再问「是不是已研究」，不能反过来：
+-- 有限的多级科技研究到顶之后 researched 会变成 true，先判 researched 的话
+-- 就会把一个 20 级的科技一次性清成未研究，而不是老老实实退一级。
+-- 普通单级科技 proto.level == tech.level == 1，can_downgrade 返回 false，
+-- 自然落到下面那支，行为和以前完全一致。
 function M.roll_tech_loss()
-    local lost = {}
+    local lost, downgraded = {}, {}
     for name, tech in pairs(game.forces.player.technologies) do
         local chance = M.loss_chance(tech)
         if chance > 0 and math.random() < chance then
-            tech.researched = false
-            lost[#lost + 1] = name
+            if M.can_downgrade(tech) then
+                local new_level = tech.level - 1
+                tech.level = new_level
+                downgraded[#downgraded + 1] = name .. ' Lv.' .. new_level
+            elseif tech.researched then
+                tech.researched = false
+                lost[#lost + 1] = name
+            end
         end
     end
-    return lost
+    return lost, downgraded
 end
 
 -- 周期任务：全服科技漏水判定一轮。由 scripts/tick.lua 的相位调度器按固定周期调用，
 -- 【不】挂在星球重置上 —— 理由见本节顶部注释。
 function M.tick_tech_loss()
-    local lost = M.roll_tech_loss()
+    local lost, downgraded = M.roll_tech_loss()
     if #lost > 0 then
         game.print({'pw.tech-lost', #lost, table.concat(lost, ', ')})
     end
-    return #lost
+    -- 降级单独播报：对玩家来说「某科技没了」和「某科技退了一级」是两件要分开应对的事，
+    -- 混进同一条消息里会让人误以为无限科技被清零了。
+    if #downgraded > 0 then
+        game.print({'pw.tech-downgraded', #downgraded, table.concat(downgraded, ', ')})
+    end
+    return #lost + #downgraded
 end
 
 -- 距离下一次科技流失判定还剩多少 tick，供传送页面做倒计时。

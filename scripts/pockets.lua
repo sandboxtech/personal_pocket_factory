@@ -19,11 +19,33 @@ function M.get(player)
     return game.surfaces[M.surface_name(player)]
 end
 
--- 惰性创建。已存在直接返回，不重复建。
-function M.ensure(player)
-    local existing = M.get(player)
-    if existing and existing.valid then return existing end
+-- 把戴森环从遥控视角的平面列表里藏起来。
+--
+-- 【纯观感功能，绝不允许它中断建环流程】——这不是防御性编程的客套话，是修 bug 修出来的规矩：
+-- 这行曾经写成 set_surface_hidden(true, surface)（参数顺序反了），抛出
+-- InvalidSurfaceIdentification，而它当时【排在 chests.ensure_array 前面】，
+-- 于是被事件总线的 pcall 吞掉之后，12 个收货箱压根没被创建 ——
+-- 玩家看到的现象是「地板在、箱子没了」，从表象上完全联想不到「隐藏 surface」这个功能。
+-- 所以现在：① 参数顺序以 runtime-api.json 为准（surface 在前、hidden 在后，已核对）；
+-- ② 单独 pcall，失败只写 log；③ 调用点挪到 ensure() 的最后，前面的关键步骤全做完再说。
+--
+-- 单 force 场景下这个隐藏对整个 force 生效（没有「只对某个玩家隐藏」的选项），
+-- 但这恰好可行：所有人（包括环主自己）都靠 UI 按钮传送进出，没人需要在列表里翻它。
+local function hide_surface(surface)
+    local force = game.forces.player
+    local ok, err = pcall(function() force.set_surface_hidden(surface, true) end)
+    if not ok then
+        log('[pw] set_surface_hidden 调用失败（不影响戴森环功能）：' .. tostring(err))
+        return
+    end
+    if not force.get_surface_hidden(surface) then
+        log('[pw] set_surface_hidden 未生效：' .. surface.name .. ' 仍会出现在遥控视角列表里')
+    end
+end
 
+-- 只负责把 surface 本身建出来。箱阵、涂砖、storage 记账都不在这里，
+-- 那些是【每次 ensure 都要跑一遍】的幂等步骤，见 M.ensure。
+local function create_surface(player)
     -- 种子按玩家 index 派生，保证同一个人每次重开拿到的地形一致，换人则不同。
     local seed = (player.index * 7919 + 104729) % 2147483647
     local surface = game.create_surface(
@@ -50,23 +72,22 @@ function M.ensure(player)
         log('[pw] 本版本 LuaSurface 无 override_pollution_type，戴森环污染未关闭')
     end
 
-    -- 隐藏戴森环 surface，不让它出现在遥控视角的平面列表里
-    -- （用户反馈：别人的戴森环会跟飞船混在一起，很乱）。
-    --
-    -- LuaForce.set_surface_hidden(hidden, surface) —— 参数顺序是先 hidden 后 surface，
-    -- 跟大多数「先目标后动作」的 API 反过来，极易写反。已用 get_surface_hidden 回读验证：
-    -- 调用 set_surface_hidden(true, surface) 之后立刻 get_surface_hidden(surface)，
-    -- 结果确认为 true（若顺序写反，传进 hidden 位置的其实是 surface 对象，Factorio 会报参数
-    -- 类型错误，跑不到下面这行；顺序对了才会安静地拿到 true）。这个校验平时不打印，
-    -- 只有 hidden_ok 不是 true 时才写 log，免得每次开环都刷屏。
-    -- 单 force 场景下这个隐藏是对整个 force 生效的（没有「只对某个玩家隐藏」的选项），
-    -- 但这恰好可行：所有人（包括环主自己）都靠 UI 按钮传送进出，没人需要在
-    -- 遥控视角的平面列表里翻到它。
-    local force = game.forces.player
-    force.set_surface_hidden(true, surface)
-    local hidden_ok = force.get_surface_hidden(surface)
-    if not hidden_ok then
-        log('[pw] set_surface_hidden 未生效：' .. surface.name .. ' 仍会出现在遥控视角列表里')
+    return surface
+end
+
+-- 惰性创建 + 自愈。已存在的环不重复建，但下面那几步【每次都跑一遍】。
+--
+-- 为什么不是「已存在就直接 return」：那样写的话，任何一次建环中途出错留下的半成品环
+-- 就永远修不好了 —— 上面 set_surface_hidden 参数写反那次正是如此，环建出来了、
+-- 地板也有（涂砖走的是 on_chunk_generated 这条独立路径），唯独 12 个收货箱缺席，
+-- 而且此后每次进环都从第一行直接返回，永远不会补建。
+-- 现在这几步全部幂等（ensure_chunks 对已生成区块是 no-op，ensure_array 逐位置跳过已存在的箱子），
+-- 每次调用重跑一遍的代价可以忽略，换来的是「进一次环就自动修一次」。
+function M.ensure(player)
+    local surface = M.get(player)
+    if not (surface and surface.valid) then
+        surface = create_surface(player)
+        if not (surface and surface.valid) then return nil end
     end
 
     -- 同步生成出生区，玩家马上就要落地，异步排队会落进还没生成的区块。
@@ -76,26 +97,45 @@ function M.ensure(player)
     local y_half = math.floor(ring_height / 2)
     ring.ensure_chunks(surface, -half, half, -y_half, y_half)
 
-    -- 顺序依赖：此刻 storage.ring_state[player.name] 还没赋值（下面才赋），
-    -- chests.expected_link_id 里「不是 'public'」分支会直接落到 player.index —— 结果正确，
-    -- 但如果把这行挪到 ring_state 赋值之后，也不会错（赋的是 'private'，同样不等于 'public'）。
-    -- 只是别把它挪到 ring.ensure_chunks 之前：那时候 surface 还没走完必要的初始化区块生成。
+    -- 收货箱阵。必须排在 ensure_chunks 之后：箱子要落在已生成、已涂好砖的区块上。
     chests.ensure_array(surface, player)
 
+    -- 记账项用「没有才写」，不能无条件覆盖：ring_applied_half 会被 ring.apply_growth
+    -- 推到更大的值，ring_state 会被生命周期推到 'public'，这里一律覆盖的话会把它们打回原形。
     storage.ring_applied_half = storage.ring_applied_half or {}
-    storage.ring_applied_half[player.name] = half
+    storage.ring_applied_half[player.name] = storage.ring_applied_half[player.name] or half
 
     storage.ring_state = storage.ring_state or {}
-    storage.ring_state[player.name] = 'private'
+    storage.ring_state[player.name] = storage.ring_state[player.name] or 'private'
+
+    -- 放在最后：纯观感，前面的关键步骤全部做完才轮到它，它出问题也不会牵连任何人。
+    hide_surface(surface)
 
     if storage.debug then
         for _, p in pairs(game.connected_players) do
             if p.admin then
-                p.print('[pw] 已创建戴森环 ' .. surface.name .. ' 半宽 ' .. half)
+                p.print('[pw] 戴森环就绪 ' .. surface.name .. ' 半宽 ' .. half)
             end
         end
     end
     return surface
+end
+
+-- 把所有【已存在】的戴森环过一遍 ensure，补齐半成品环缺失的部分（典型是 12 个收货箱）。
+--
+-- 只碰已经存在的环，绝不新建：对已经离线超过删除阈值、环已被回收的玩家调 ensure，
+-- 会把那个环凭空造回来，等于绕过 50 小时删除规则。判据就是 M.get(player) 非空。
+--
+-- 由 on_configuration_changed（老存档升级）和 /ring-repair 指令调用。
+function M.repair_all()
+    local count = 0
+    for _, player in pairs(game.players) do
+        if M.get(player) then
+            M.ensure(player)
+            count = count + 1
+        end
+    end
+    return count
 end
 
 -- 把玩家送进自己的戴森环。没有就先建。

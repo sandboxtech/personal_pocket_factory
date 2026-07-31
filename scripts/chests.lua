@@ -87,6 +87,12 @@ function M.ensure_array(surface, player)
                 -- 代价：箱主自己也打不开自己的收货箱，取货必须靠机械臂。这是明确接受的。
                 -- 机械臂和传送带完全不受 operable 影响 —— 它只管玩家 GUI。
                 chest.operable = false
+            else
+                -- create_entity 返回 nil（位置被占、砖不可建造等）。这一支曾经是完全静默的，
+                -- 而「箱子没了」是玩家最容易注意到、最难自己诊断的故障，
+                -- 所以哪怕只是少了一个箱子也要留下痕迹。
+                log(string.format('[pw] 收货箱创建失败 surface=%s pos=(%.1f,%.1f) owner=%s',
+                    surface.name, pos.x, pos.y, player.name))
             end
         else
             -- 「已存在」分支也要重设这四项，不能只在新建时设——
