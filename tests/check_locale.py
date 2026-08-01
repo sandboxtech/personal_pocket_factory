@@ -23,8 +23,17 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ZH = os.path.join(ROOT, 'locale/zh-CN/locale.cfg')
-EN = os.path.join(ROOT, 'locale/en/locale.cfg')
+LOCALE_DIR = os.path.join(ROOT, 'locale')
+ZH = os.path.join(LOCALE_DIR, 'zh-CN/locale.cfg')
+EN = os.path.join(LOCALE_DIR, 'en/locale.cfg')
+
+
+def all_languages():
+    """locale/ 下的全部语言，en 永远排第一（它是翻译的源语言）。"""
+    langs = sorted(d for d in os.listdir(LOCALE_DIR)
+                   if os.path.isfile(os.path.join(LOCALE_DIR, d, 'locale.cfg')))
+    langs.remove('en')
+    return ['en'] + langs
 
 # [pw] 段之外的键，不参与「有没有人用」的核对
 META = {'description', 'scenario-name'}
@@ -112,17 +121,21 @@ def main():
     zh, en = parse(ZH), parse(EN)
     problems = []
 
-    only_zh = sorted(set(zh) - set(en))
-    only_en = sorted(set(en) - set(zh))
-    if only_zh:
-        problems.append('只在 zh-CN 里有的键: ' + ', '.join(only_zh))
-    if only_en:
-        problems.append('只在 en 里有的键: ' + ', '.join(only_en))
-
-    for k in sorted(set(zh) & set(en)):
-        if placeholders(zh[k]) != placeholders(en[k]):
-            problems.append('占位符两语言不一致: %s (zh=%s en=%s)'
-                            % (k, sorted(placeholders(zh[k])), sorted(placeholders(en[k]))))
+    # 每种语言都拿 en 当基准比一遍：键集必须完全相同，同一个键的占位符集合也必须相同。
+    # 少一个键在那种客户端语言下会显示成 "Unknown key"，占位符对不上则会漏显示一个数字。
+    langs = all_languages()
+    for lang in langs[1:]:
+        other = parse(os.path.join(LOCALE_DIR, lang, 'locale.cfg'))
+        missing = sorted(set(en) - set(other))
+        extra = sorted(set(other) - set(en))
+        if missing:
+            problems.append('%s 缺少 %d 个键: %s' % (lang, len(missing), ', '.join(missing[:8])))
+        if extra:
+            problems.append('%s 多出的键: %s' % (lang, ', '.join(extra[:8])))
+        for k in sorted(set(en) & set(other)):
+            if placeholders(en[k]) != placeholders(other[k]):
+                problems.append('%s 的 %s 占位符和 en 不一致 (en=%s %s=%s)'
+                                % (lang, k, sorted(placeholders(en[k])), lang, sorted(placeholders(other[k]))))
 
     # 代码里引用的键 + 动态拼出来的键
     used = set()
@@ -171,7 +184,9 @@ def main():
         for p in problems:
             print('  ' + p)
         return 1
-    print('✓ locale 一致：%d 个键，两种语言键集/占位符相同，无缺键无死键，实参个数全部对得上' % len(zh))
+    print('✓ locale 一致：%d 个键 × %d 种语言（%s），键集/占位符全部相同，'
+          '无缺键无死键，实参个数对得上'
+          % (len(en), len(all_languages()), ' '.join(all_languages())))
     return 0
 
 
