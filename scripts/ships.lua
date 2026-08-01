@@ -13,9 +13,10 @@
 -- 因为存在【无主飞船】：玩家仍然可以从火箭井原生造平台，那种船脚本没参与创建、
 -- 不知道是谁的。按玩家名做主键的话，这类船在表里根本没有位置可放。
 -- 平台 index 才是这件事真正的主键，主人只是它的一个属性（可以为 nil）。
+-- 不 require pockets：船销毁时不再手工撤人（引擎会处理站在消失表面上的角色，
+-- 玩家走正常复活流程回到自己的环），这条依赖边随那段逻辑一起消失了。
 local constants = require('scripts.constants')
 local events = require('scripts.events')
-local pockets = require('scripts.pockets')
 
 local M = {}
 
@@ -179,26 +180,6 @@ events.on(defines.events.on_surface_created, function(event)
     on_platform_surface(game.surfaces[event.surface_index])
 end)
 
--- 把还在某艘船上的人撤回各自的戴森环。销毁前调用，不把人清进虚空。
---
--- 先 leave_space_platform 再传送：玩家可能【在中枢内部】而不是站在平台地板上
--- （overview 的登船走的是 LuaPlayer.enter_space_platform，进去就是中枢内部，
--- 这也是原版坐货运舱抵达时的状态）。带着"在平台里"这个状态直接跨 surface 传送
--- 是个没验证过的路径，先显式退出来把状态清干净，再走正常的传送。
--- leave_space_platform 对不在平台里的人是 no-op（文档："if in a platform"），
--- 所以无条件调用是安全的。
-local function evacuate(platform)
-    local surface = platform.surface
-    if not (surface and surface.valid) then return end
-    for _, p in pairs(game.connected_players) do
-        if p.surface == surface then
-            p.print({'pw.ship-evacuated'})
-            p.leave_space_platform()
-            pockets.enter(p)
-        end
-    end
-end
-
 -- 所有在册飞船，供 GUI 列出。顺手清掉指向已消失平台的记录。
 -- 每项：{ index, owner（可能是 nil）, platform, left_hours, location（星球名或 nil） }
 function M.all()
@@ -227,8 +208,13 @@ function M.all()
     return out
 end
 
--- 周期任务：销毁超龄的飞船。先撤人再炸，和戴森环 50 小时删除同一套规矩。
--- 由 scripts/tick.lua 的相位调度器调用（相位 3）。
+-- 周期任务：销毁超龄的飞船。由 scripts/tick.lua 的相位调度器调用（相位 3）。
+--
+-- 【不撤人】。和戴森环删除同一套规矩：船没了，还在船上的人跟着没，
+-- 然后走正常复活流程回到自己的戴森环（on_player_respawned → pockets.enter）。
+-- 引擎自己会处理表面消失时站在上面的角色，脚本不需要抢在前面搬人 ——
+-- 要管好的是复活点，不是销毁那一刻的玩家状态。
+-- 船本来就是有寿命的临时资产，跟船一起沉掉也符合它的定位。
 function M.tick_lifecycle()
     local destroyed = 0
     for index, record in pairs(records()) do
@@ -237,7 +223,6 @@ function M.tick_lifecycle()
             records()[index] = nil
         elseif M.left_ticks(record) <= 0 then
             local label = record.owner or platform.name
-            evacuate(platform)
             platform.destroy()
             records()[index] = nil
             destroyed = destroyed + 1

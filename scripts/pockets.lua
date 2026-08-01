@@ -108,6 +108,18 @@ function M.ensure(player)
     storage.ring_state = storage.ring_state or {}
     storage.ring_state[player.name] = storage.ring_state[player.name] or 'private'
 
+    -- 复活点钉在环上。
+    --
+    -- 【这是本场景处理"表面被删时玩家在里面"的唯一手段】。脚本不在删除前搬人——
+    -- 引擎自己会处理站在消失表面上的角色（角色死亡），玩家随后走正常复活流程，
+    -- 所以真正要管好的是复活落在哪儿，而不是删除那一刻的玩家状态。
+    -- 兜底还有一层：scripts/players.lua 的 on_player_respawned 一律调 M.enter，
+    -- 环没了就当场重建。两层的关系是"引擎的默认落点尽量别离谱"+"脚本最终说了算"。
+    --
+    -- set_spawn_position 是 per-force-per-surface 的，单 force 场景下即
+    -- 「这个 surface 上的出生点」，各条环互不干扰。坐标和 M.enter 的落点保持一致。
+    game.forces.player.set_spawn_position({4, 0}, surface)
+
     -- 放在最后：纯观感，前面的关键步骤全部做完才轮到它，它出问题也不会牵连任何人。
     hide_surface(surface)
 
@@ -158,7 +170,12 @@ end
 -- 现在 30 小时才开始有后果，50 小时才真的删，而且删的只是建筑，进度一点不丢。
 -------------------------------------------------------------------------------
 
--- 把还留在某 surface 上的玩家撤回各自的戴森环。
+-- 把还留在某 surface 上的访客请回各自的戴森环。
+--
+-- 【这不是"删表面前的清场"，删表面不需要清场】——引擎会处理站在被删表面上的角色
+-- （角色死亡，玩家走正常的复活流程，而复活流程本场景已经接管：on_player_respawned
+-- 一律送回他自己的环，见 scripts/players.lua）。
+-- 本函数唯一的用途是【主人回来了，把客人请出去】这条玩法规则，和删除毫无关系。
 local function evacuate(surface, except_name)
     for _, p in pairs(game.connected_players) do
         if p.surface == surface and p.name ~= except_name then
@@ -168,15 +185,19 @@ local function evacuate(surface, except_name)
     end
 end
 
--- 删除某人的戴森环。经验一点不动，下次上线重新长出来。
+-- 删除某人的戴森环。经验一点不动，下次进环重新长出来。
+--
+-- 【不检查主人在不在线，也不清场】。老版本两样都做，理由是"删表面必然要处理人在里面
+-- 怎么办"——但那个前提本身是错的：引擎自己会处理，站在被删表面上的角色会死亡，
+-- 玩家走正常复活流程，而本场景已经接管了复活（on_player_respawned → pockets.enter），
+-- 一律落在他自己的环里。真正要管好的是【复活点】，不是删除那一刻的玩家状态。
+-- 少了这两层，指令的行为也从"有时候拒绝执行"变成了"永远照做"，更好预期。
 function M.delete_ring(player)
     if not (player and player.valid) then return false, 'pw.cmd-no-player' end
-    if player.connected then return false, 'pw.cmd-player-online' end
 
     local surface = M.get(player)
     if not (surface and surface.valid) then return false, 'pw.cmd-no-ring' end
 
-    evacuate(surface, nil)
     game.delete_surface(surface)
 
     storage.ring_state = storage.ring_state or {}
@@ -186,37 +207,17 @@ function M.delete_ring(player)
     return true
 end
 
--- 删除【所有】戴森环。经验一点不动，没的只有建筑和关联库存。
--- 返回删掉的条数；公共世界缺失导致无处安置玩家时返回 nil 加一个本地化 key。
+-- 删除【所有】戴森环。经验一点不动，没的只有建筑和关联库存。返回删掉的条数。
 --
--- 【不能简单地对每个人循环调 M.delete_ring】：delete_ring 里的 evacuate 把人送回
--- 「他自己的环」（M.enter），而这里连他自己的环也在删除名单上 ——
--- 删到一半时把某人送回一条刚删掉的环，M.enter 会当场把它重建出来，
--- 循环跑完那条环还在，「删除所有」就不成立了。
--- 所以分两步：先把所有还站在任意戴森环上的人挪到公共世界，再统一删。
+-- 【不搬人、不检查在线】。站在环里的玩家会随表面删除而死亡，然后走正常复活流程，
+-- 而复活流程本场景已经接管（on_player_respawned → M.enter），一律落回他自己的环。
+-- 早先这里手工把所有人挪到公共世界、并在公共世界不可用时整个中止，
+-- 那套逻辑解决的是一个引擎本来就不会出的问题，代价是多了一条"什么都没删"的分支
+-- 和一个只在那条分支上用得到的错误码。
 --
--- 【删完不立刻重建在线玩家的环】：game.delete_surface 是延迟生效的
--- （它 raise on_pre_surface_deleted 和 on_surface_deleted 两个事件，文档措辞也是
--- "Deletes the given surface ... if possible"），同一 tick 内拿同名去 create_surface
--- 会撞上还没真正消失的旧 surface —— 而 surface 名必须唯一。
--- 玩家点一下 HUD 上的回环按钮就会惰性重建（M.ensure），那时候删除早已结算完毕。
+-- 死亡会掉背包，这对一条"重置全服"的指令是可接受的（也符合它的语义）；
+-- 指令本身有预览 + confirm 两道闸，见 scripts/commands.lua。
 function M.delete_all_rings()
-    -- 安置点用第一个公共星球。它拿不到就整个中止：宁可什么都不删，
-    -- 也不能把人留在一个正在被删除的 surface 上——那是没验证过的状态。
-    local fallback = game.surfaces[constants.PUBLIC_PLANETS[1]]
-    if not (fallback and fallback.valid) then
-        return nil, 'pw.cmd-ring-delete-all-no-world'
-    end
-
-    for _, p in pairs(game.connected_players) do
-        if ring.is_ring_surface(p.surface) then
-            p.print({'pw.ring-wiped'})
-            local origin = p.force.get_spawn_position(fallback)
-            local pos = fallback.find_non_colliding_position('character', origin, 128, 1) or origin
-            p.teleport(pos, fallback)
-        end
-    end
-
     storage.ring_state = storage.ring_state or {}
     storage.ring_applied_half = storage.ring_applied_half or {}
 

@@ -105,8 +105,10 @@ function M.ensure_defaults()
     storage.stamina_pending_cap = storage.stamina_pending_cap or 100000       -- 可领取池上限（点）
     storage.stamina_balance_cap = storage.stamina_balance_cap or 10000000     -- 体力池上限（点）
     -- 新玩家初始体力池 = 可领取上限（stamina_pending_cap）的多少倍。
-    -- 写成派生倍数而不是写死的点数，调 pending_cap 时初始值自动跟着变，不用两处同步改。
-    storage.stamina_initial_multiple = storage.stamina_initial_multiple or 10
+    -- 默认 0：不白送启动体力，所有人都从"攒"开始，第一次兑换就得先等体力回满一点。
+    -- 写成派生倍数而不是写死的点数，将来想开个新手礼包时调 pending_cap 也不用两处同步改。
+    -- 注意 Lua 里 0 是真值，所以 `storage.x or 0` 这个写法对 0 是正确的（不会被当成"没设过"）。
+    storage.stamina_initial_multiple = storage.stamina_initial_multiple or 0
 
     -- ══ 经验（12 种，按科技瓶短名分列） ══
     storage.exp = storage.exp or {}

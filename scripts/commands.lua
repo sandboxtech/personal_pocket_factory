@@ -5,12 +5,14 @@ local M = {}
 
 -- /ring-delete <玩家名>
 --
--- 删除指定玩家的戴森环表面。经验一点不动 —— 玩家下次上线时环按经验立刻恢复到原样，
+-- 删除指定玩家的戴森环表面。经验一点不动 —— 玩家下次进环时按经验立刻恢复到原样，
 -- 丢的只有建筑和关联库存。和离线 50 小时那条规则完全一致，只是由管理员手动触发。
 --
--- 目标在线时【拒绝执行】。删表面必然要处理「人在里面怎么办」，
--- 而任何处理方式都是在玩家没有心理准备时动他的世界。
--- 拒绝执行把这个决定推回给管理员：想删就先请人下线。
+-- 【目标在不在线都照做】。老版本对在线目标拒绝执行，前提是「删表面必然要处理
+-- 人在里面怎么办」——而这个前提是错的：引擎自己会处理站在被删表面上的角色，
+-- 玩家随后走正常复活流程，本场景又把复活接管成「一律回自己的环」
+-- （players.lua 的 on_player_respawned，环没了就当场重建）。
+-- 既然没有需要脚本收拾的烂摊子，那条拒绝就只是让指令行为变得难以预期。
 commands.add_command('ring-delete', {'pw.cmd-ring-delete-help'}, function(command)
     local caller = command.player_index and game.players[command.player_index]
     if caller and not caller.admin then
@@ -57,11 +59,13 @@ end)
 -- 【不带参数只做预览，不删任何东西】。Factorio 控制台没有撤销，而这条指令一次抹掉
 -- 全服所有人的工厂，破坏面比 /ring-delete 大一个数量级，值得多按一次回车。
 --
--- 【和 /ring-delete 的规则不一致是有意的】：单点删除会拒绝在线的目标，理由是
--- 「想删就先请人下线」——对一个人提这个要求是合理的。但全服重置时要求所有人先下线
--- 并不现实，而且一个「号称删除所有、实际悄悄跳过在线玩家」的指令更危险：
--- 管理员以为重置完了，其实没有。要么全做要么不做，中间状态最坑人。
--- 在线玩家会被先挪到公共世界并收到提示，不会在毫无察觉的情况下被动世界。
+-- 【一视同仁，不跳过在线玩家】。一个「号称删除所有、实际悄悄跳过在线玩家」的指令
+-- 最危险：管理员以为重置完了，其实没有。要么全做要么不做，中间状态最坑人。
+-- 当时在环里的人会随表面删除而死亡，然后正常复活回自己（重新长出来的）环里，
+-- 这条路径不需要脚本额外做什么，见 pockets.delete_all_rings 的注释。
+--
+-- 预览里仍然单独报一下「其中几条的主人在线」——不是因为要区别对待，
+-- 而是那几个人会当场掉背包，管理员按下 confirm 前有权知道这件事。
 commands.add_command('ring-delete-all', {'pw.cmd-ring-delete-all-help'}, function(command)
     local caller = command.player_index and game.players[command.player_index]
     if caller and not caller.admin then
@@ -90,12 +94,7 @@ commands.add_command('ring-delete-all', {'pw.cmd-ring-delete-all-help'}, functio
         return
     end
 
-    local deleted, err = pockets.delete_all_rings()
-    if not deleted then
-        reply({err or 'pw.cmd-ring-delete-all-no-world'})
-        return
-    end
-
+    local deleted = pockets.delete_all_rings()
     local who = caller and caller.name or {'pw.console-label'}
     game.print({'pw.cmd-ring-delete-all-done', deleted, who})
 end)

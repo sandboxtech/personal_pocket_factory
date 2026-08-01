@@ -3,7 +3,6 @@
 -- 只导出 M.render(container, player)，不再自己开弹窗，见 claim.lua 顶部注释——
 -- 三个子窗口合并成了一个「状态」窗口（scripts/gui/status.lua），这里只管画内容。
 local exp = require('scripts.exp')
-local stamina = require('scripts.stamina')
 local util = require('scripts.util')
 local hud = require('scripts.gui.hud')
 
@@ -28,8 +27,9 @@ function M.render(container, player)
         container.add{type = 'label', caption = {'pw.convert-nothing'}}
     end
 
+    -- 只报"这次要花多少"，不再重复"我现在有多少"——
+    -- 体力池余额上面「领取」那一段已经写着了，同一个数字在一个窗口里出现两次纯属噪音。
     container.add{type = 'label', caption = {'pw.convert-total', util.readable(total_gain), points_used}}
-    container.add{type = 'label', caption = {'pw.convert-have', stamina.balance(player.name)}}
 
     local button = container.add{type = 'button', name = 'pw_do_convert', caption = {'pw.convert-do'}}
     if total_gain <= 0 then

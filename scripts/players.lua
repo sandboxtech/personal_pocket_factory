@@ -83,10 +83,11 @@ events.on(defines.events.on_player_created, function(event)
     assign_group(player)
     pockets.enter(player)
     grant_starter(player)
-    -- 新玩家的初始体力池，不用干等着攒。派生自可领取上限，不写死数字——
-    -- 调 stamina_pending_cap 时初始值自动跟着变，不用两处同步改。
-    local initial = (storage.stamina_pending_cap or 100000) * (storage.stamina_initial_multiple or 10)
-    stamina.add(player.name, initial)
+    -- 新玩家的初始体力池。默认倍数是 0，也就是不白送——所有人都从"攒"开始。
+    -- 仍然保留这个入口：storage.stamina_initial_multiple 调大就是一份新手礼包，
+    -- 派生自可领取上限而不是写死数字，调 cap 时礼包大小自动跟着变。
+    local initial = (storage.stamina_pending_cap or 100000) * (storage.stamina_initial_multiple or 0)
+    if initial > 0 then stamina.add(player.name, initial) end
     player.print({'pw.welcome'})
     -- 进场立刻建 HUD，不能指望周期刷新任务顺手把它建出来——
     -- 那个任务的间隔现在是 storage.hud_refresh_ticks（默认 3600 tick），
