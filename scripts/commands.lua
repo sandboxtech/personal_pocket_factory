@@ -1,6 +1,7 @@
 -- 管理员指令。全部注册在这里，方便一眼看全。
-local constants = require('scripts.constants')
 local pockets = require('scripts.pockets')
+-- gui.config 只 require constants 和 gui.popup，两者都不反向依赖 commands，顶层 require 不成环。
+local config_gui = require('scripts.gui.config')
 
 local M = {}
 
@@ -23,61 +24,22 @@ local function admin_gate(command)
     return caller, reply
 end
 
--- 把一个 storage 值渲染成【能直接粘回控制台】的 Lua 字面量。
--- 字符串要带引号、布尔要是 true/false —— 少了这层，管理员照着显示的值抄一遍
--- 会写出 storage.ship_home_planet = nauvis 这种把星球名当全局变量读的语句（值是 nil）。
-local function literal(value)
-    if type(value) == 'string' then return "'" .. value .. "'" end
-    return tostring(value)
-end
-
--- /pw-config [关键词]
+-- /pw-config
 --
--- 列出所有可热改的参数：当前值、一句话说明、以及照抄就能用的 /sc 语句。
--- 数据源是 constants.TUNABLES / TUNABLE_TABLES —— 和 ensure_defaults 读的是同一张表，
--- 所以这里列出来的东西不可能和实际生效的默认值脱节。
+-- 打开管理员配置总览窗口：所有可热改的参数、当前值、【改了什么时候生效】、一句话说明。
+-- 内容和渲染都在 scripts/gui/config.lua，这里只负责鉴权和开窗。
 --
--- 带关键词时只显示字段名或分组名包含该词的项。27 个标量一次全刷出来对聊天框是个负担，
--- 而管理员多半是冲着某一类来的（"体力上限多少来着"），给个过滤比分页实在。
+-- 早先这条指令是往聊天框里逐行打的，31 个配置项一次刷出来会把之前的消息全顶掉，
+-- 还没法回滚和复制。配置这种"对照着看、挑一个抄出来改"的东西天生需要一个可滚动的表格。
 commands.add_command('pw-config', {'pw.cmd-config-help'}, function(command)
     local caller, reply = admin_gate(command)
     if not reply then return end
-
-    local filter = command.parameter and string.lower(string.match(command.parameter, '^%s*(%S*)') or '')
-    if filter == '' then filter = nil end
-
-    reply({'pw.cmd-config-head'})
-
-    local shown = 0
-    for _, group in ipairs(constants.TUNABLE_GROUPS) do
-        local rows = {}
-
-        for _, item in ipairs(constants.TUNABLES) do
-            if item.group == group and (not filter or string.find(string.lower(item.key), filter, 1, true)) then
-                rows[#rows + 1] = {'pw.cmd-config-row', item.key,
-                    literal(storage[item.key]), {'pw.cfg-' .. string.gsub(item.key, '_', '-')}}
-            end
-        end
-        for _, item in ipairs(constants.TUNABLE_TABLES) do
-            if item.group == group and (not filter or string.find(string.lower(item.key), filter, 1, true)) then
-                rows[#rows + 1] = {'pw.cmd-config-row-table', item.key, item.example,
-                    {'pw.cfg-' .. string.gsub(item.key, '_', '-')}}
-            end
-        end
-
-        -- 组标题只在这一组真有内容时才打，否则加了关键词之后会刷出一串空组
-        if #rows > 0 then
-            reply({'pw.cmd-config-group', {'pw.cfg-group-' .. group}})
-            for _, row in ipairs(rows) do
-                reply(row)
-                shown = shown + 1
-            end
-        end
+    if not caller then
+        -- 从服务器控制台执行时没有玩家可以开窗口
+        reply({'pw.cmd-config-console'})
+        return
     end
-
-    if shown == 0 then
-        reply({'pw.cmd-config-none', filter or ''})
-    end
+    config_gui.show(caller)
 end)
 
 -- /ring-delete <玩家名>
@@ -174,27 +136,6 @@ commands.add_command('ring-delete-all', {'pw.cmd-ring-delete-all-help'}, functio
     local deleted = pockets.delete_all_rings()
     local who = caller and caller.name or {'pw.console-label'}
     game.print({'pw.cmd-ring-delete-all-done', deleted, who})
-end)
-
--- /ring-repair
---
--- 把所有已存在的戴森环重新过一遍 ensure，补齐缺失的部分。
--- 存在的理由：曾经有一版代码在建环中途抛错（隐藏 surface 的参数写反），
--- 环建出来了、地板也涂好了，唯独 12 个收货箱没建，而老的 ensure 一见环存在就直接返回，
--- 这类半成品环永远修不好。现在 ensure 幂等自愈，这条指令只是给管理员一个
--- 不必让所有人重连就能全服扫一遍的入口。
---
--- 不会新建任何环（见 pockets.repair_all），所以对已按规则回收掉的环没有副作用。
-commands.add_command('ring-repair', {'pw.cmd-ring-repair-help'}, function(command)
-    local caller = command.player_index and game.players[command.player_index]
-    if caller and not caller.admin then
-        caller.print({'pw.cmd-admin-only'})
-        return
-    end
-
-    local count = pockets.repair_all()
-    local msg = {'pw.cmd-ring-repaired', count}
-    if caller then caller.print(msg) else game.print(msg) end
 end)
 
 return M

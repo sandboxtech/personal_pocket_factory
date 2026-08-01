@@ -50,46 +50,57 @@ M.RING_SPAWN = {0, 0}
 --
 -- 说明文案的 locale key 由字段名派生：pw.cfg-<字段名，下划线换短横>，两种语言各一份。
 -- group 只决定 /pw-config 里的分组显示顺序，不影响任何行为。
+--
+-- applies 说明【改了这个值到底什么时候、对谁生效】。这一栏不是补充说明，是必需的：
+-- 有些字段改完立刻全服生效，有些只对之后新建的东西管用，改了不重开就永远看不到效果，
+-- 管理员没法从字段名看出区别，试一次不生效又会以为是 bug。取值：
+--   live    立刻对所有人生效（每次用到时现读，不缓存）
+--   grow    立刻重算，但环只会变宽不会变窄（缩小要等下次重建）
+--   repaint 只影响之后新涂的砖，已经铺好的地不动
+--   reset   下次那个世界重置时才套用
+--   new     只对之后新建的东西生效，已存在的不变
+--   dead    目前完全不起作用（留着是为了不假装它能用）
 M.TUNABLE_GROUPS = {'stamina', 'ring', 'lifecycle', 'world', 'ship', 'cycle', 'tech', 'misc'}
 
 M.TUNABLES = {
-    {key = 'stamina_ticks_per_point', default = 60, group = 'stamina'},
-    {key = 'stamina_pending_cap', default = 100000, group = 'stamina'},
-    {key = 'stamina_balance_cap', default = 10000000, group = 'stamina'},
-    {key = 'stamina_initial_multiple', default = 0, group = 'stamina'},
-    {key = 'ring_height', default = 128, group = 'ring'},
-    {key = 'ring_concrete_height', default = 64, group = 'ring'},
-    {key = 'ring_base_half_width', default = 32, group = 'ring'},
-    {key = 'ring_per_level', default = 16, group = 'ring'},
-    {key = 'ring_level_offset', default = 10, group = 'ring'},
-    {key = 'ring_public_hours', default = 30, group = 'lifecycle'},
-    {key = 'ring_delete_hours', default = 50, group = 'lifecycle'},
-    {key = 'ring_min_hours', default = 1, group = 'lifecycle'},
-    {key = 'public_size', default = 2048, group = 'world'},
-    {key = 'world_reset_offset_minutes', default = 10, group = 'world'},
-    {key = 'ship_life_hours', default = 50, group = 'ship'},
-    {key = 'ship_width', default = 256, group = 'ship'},
-    {key = 'ship_height', default = 512, group = 'ship'},
-    {key = 'ship_home_planet', default = 'nauvis', group = 'ship'},
-    {key = 'ship_lock_native_creation', default = true, group = 'ship'},
-    {key = 'cycle_minutes', default = 60, group = 'cycle'},
-    {key = 'cycle_phase_minutes', default = 5, group = 'cycle'},
-    {key = 'cycle_base_offset_minutes', default = 2, group = 'cycle'},
-    {key = 'hud_refresh_ticks', default = 3600, group = 'cycle'},
-    {key = 'tech_loss_k', default = 1, group = 'tech'},
-    {key = 'detail_hours', default = 6, group = 'misc'},
-    {key = 'block_blueprint_library', default = false, group = 'misc'},
-    {key = 'debug', default = false, group = 'misc'},
+    {key = 'stamina_ticks_per_point', default = 60, group = 'stamina', applies = 'live'},
+    {key = 'stamina_pending_cap', default = 100000, group = 'stamina', applies = 'live'},
+    {key = 'stamina_balance_cap', default = 10000000, group = 'stamina', applies = 'live'},
+    {key = 'stamina_initial_multiple', default = 0, group = 'stamina', applies = 'new'},
+    {key = 'ring_height', default = 128, group = 'ring', applies = 'new'},
+    {key = 'ring_concrete_height', default = 64, group = 'ring', applies = 'repaint'},
+    {key = 'ring_base_half_width', default = 32, group = 'ring', applies = 'repaint'},
+    {key = 'ring_per_level', default = 16, group = 'ring', applies = 'grow'},
+    {key = 'ring_level_offset', default = 10, group = 'ring', applies = 'grow'},
+    {key = 'ring_public_hours', default = 30, group = 'lifecycle', applies = 'live'},
+    {key = 'ring_delete_hours', default = 50, group = 'lifecycle', applies = 'live'},
+    {key = 'ring_min_hours', default = 1, group = 'lifecycle', applies = 'live'},
+    {key = 'public_size', default = 2048, group = 'world', applies = 'reset'},
+    {key = 'world_reset_offset_minutes', default = 10, group = 'world', applies = 'new'},
+    {key = 'ship_life_hours', default = 50, group = 'ship', applies = 'live'},
+    {key = 'ship_width', default = 256, group = 'ship', applies = 'new'},
+    {key = 'ship_height', default = 512, group = 'ship', applies = 'new'},
+    {key = 'ship_home_planet', default = 'nauvis', group = 'ship', applies = 'new'},
+    {key = 'ship_lock_native_creation', default = true, group = 'ship', applies = 'live'},
+    {key = 'cycle_minutes', default = 60, group = 'cycle', applies = 'live'},
+    {key = 'cycle_phase_minutes', default = 5, group = 'cycle', applies = 'new'},
+    {key = 'cycle_base_offset_minutes', default = 2, group = 'cycle', applies = 'new'},
+    {key = 'hud_refresh_ticks', default = 3600, group = 'cycle', applies = 'live'},
+    {key = 'tech_loss_k', default = 1, group = 'tech', applies = 'live'},
+    {key = 'detail_hours', default = 6, group = 'misc', applies = 'live'},
+    {key = 'block_blueprint_library', default = false, group = 'misc', applies = 'dead'},
+    {key = 'debug', default = false, group = 'misc', applies = 'live'},
 }
 
 -- 表类型的配置项：默认值太大、结构也各不相同，仍然在 ensure_defaults 里就地定义，
 -- 这里只登记「它存在、归哪一组、怎么改」，供 /pw-config 一并列出。
 -- example 是一条能直接粘进控制台的示例——表字段没法像标量那样直接赋一个数字。
 M.TUNABLE_TABLES = {
-    {key = 'world_reset_minutes', group = 'world', example = '/sc storage.world_reset_minutes.nauvis = 30'},
-    {key = 'quality_exp', group = 'misc', example = '/sc storage.quality_exp.legendary = 12'},
-    {key = 'ring_tiles', group = 'ring', example = '/sc storage.ring_tiles.grown = \'refined-concrete\''},
-    {key = 'world_patch_tiles', group = 'world', example = '/sc storage.world_patch_tiles.nauvis = {\'grass-1\',\'sand-1\'}'},
+    {key = 'world_reset_minutes', group = 'world', example = '/sc storage.world_reset_minutes.nauvis = 30', applies = 'live'},
+    {key = 'quality_exp', group = 'misc', example = '/sc storage.quality_exp.legendary = 12', applies = 'live'},
+    {key = 'ring_tiles', group = 'ring', example = '/sc storage.ring_tiles.grown = \'refined-concrete\'', applies = 'repaint'},
+    {key = 'world_patch_tiles', group = 'world', applies = 'reset',
+     example = '/sc storage.world_patch_tiles.nauvis = {\'grass-1\',\'sand-1\'}'},
 }
 
 -- 戴森环的地图生成设置。

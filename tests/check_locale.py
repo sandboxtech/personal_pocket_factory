@@ -100,6 +100,11 @@ def dynamic_keys():
     if m:
         for g in re.findall(r"'(\w+)'", m.group(1)):
             keys.add('cfg-group-' + g)
+    # 生效范围徽标：gui/config.lua 里同样是 'pw.cfg-applies-' .. applies 拼出来的，
+    # 每种取值有徽标和 tooltip 两条。取值集合就是 TUNABLES 里出现过的所有 applies。
+    for a in set(re.findall(r"applies = '(\w+)'", src)):
+        keys.add('cfg-applies-' + a)
+        keys.add('cfg-applies-' + a + '-tip')
     return keys
 
 
