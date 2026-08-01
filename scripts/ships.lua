@@ -47,6 +47,13 @@ function M.of(player)
     return nil
 end
 
+-- 船成形了没有。起步包还没用火箭发上来的平台没有 surface，登不上去。
+function M.is_ready(platform)
+    if not (platform and platform.valid) then return false end
+    local surface = platform.surface
+    return (surface and surface.valid) and true or false
+end
+
 -- 这艘船的寿命（tick）。到期即销毁。
 function M.life_ticks()
     return (storage.ship_life_hours or 50) * constants.hour_to_tick
@@ -79,50 +86,64 @@ local function apply_bounds(platform)
     end
 end
 
+-- ══ 禁用原生建船，只留 UI 这一条路 ══
+--
+-- lock_space_platforms() 是【纯 UI 闸门】。引擎文档写得很克制：
+--   lock_space_platforms  "Locks the space platforms, which disables the space platforms button"
+--   is_space_platforms_unlocked  "This basically just controls the availability of the
+--                                 space platforms button"
+-- 它不拦 create_space_platform 这个脚本调用，所以「玩家自己建不了、脚本能建」正好成立。
+-- 这是本场景需要归属制的前提：船必须都从 M.create 出生，才谈得上"这是谁的船"。
+--
+-- 【为什么要反复锁，不能只在 on_init 锁一次】：
+-- 按钮的解锁是引擎内部行为。space-platform 科技是个 trigger 科技
+-- （research_trigger = {type = "create-space-platform"}），效果只解锁几个配方，
+-- 并不负责解锁那个按钮 —— 也就是说我没法从原型里枚举出全部会重新解锁它的路径。
+-- 之前关联箱防偷那轮的教训是【枚举触发点必然漏】，所以这里不枚举：
+-- 本函数幂等，由 on_research_finished 和每分钟的调度器各调一次，
+-- 无论谁把它解开，最迟一分钟内会被重新锁上。
+function M.enforce_lock()
+    local force = game.forces.player
+    if storage.ship_lock_native_creation == false then
+        if not force.is_space_platforms_unlocked() then force.unlock_space_platforms() end
+        return
+    end
+    if force.is_space_platforms_unlocked() then
+        force.lock_space_platforms()
+    end
+end
+
+events.on(defines.events.on_research_finished, function()
+    M.enforce_lock()
+end)
+
 -- 造一艘。成功返回 platform，失败返回 nil 加一个本地化 key。
+--
+-- 【起步包仍然要用火箭发上去】：本函数只负责把平台登记出来，它诞生时处在
+-- waiting_for_starter_pack 状态，surface 还不存在
+-- （文档原话："The surface that belongs to this platform (if it has been created yet)"）。
+-- 玩家得照常造火箭、把 space-platform-starter-pack 发上天，平台才真正成形。
+-- 换句话说 UI 按钮换掉的只是"谁来按下创建"这一步，太空玩法本来的门槛一点没降 ——
+-- 这正是"启动包还是要发射"的意思。surface 出现时 on_surface_created 会接手套边界。
 function M.create(player)
     if not (player and player.valid) then return nil, 'pw.ship-create-failed' end
     if M.of(player) then return nil, 'pw.ship-already-have' end
 
-    -- 起步包自备。这保留了太空玩法本来的门槛 —— 白送一艘船的话，
-    -- "上太空"就从一个需要攒产能的目标退化成一个点一下的按钮。
-    local need_pack = storage.ship_require_starter_pack ~= false
-    if need_pack and player.get_item_count(STARTER_PACK) < 1 then
-        return nil, 'pw.ship-no-pack'
-    end
-
-    -- 【先造后扣】：造船可能因为各种引擎内部原因返回 nil，先扣包再失败的话
-    -- 玩家白丢一个起步包。两条语句之间没有任何让物品数量发生变化的机会，
-    -- 所以"先造后扣"不会出现扣不到的情况。
     local platform = game.forces.player.create_space_platform{
         name = player.name,
         planet = storage.ship_home_planet or 'nauvis',
         starter_pack = STARTER_PACK,
     }
-    if not platform then return nil, 'pw.ship-create-failed' end
-
-    if need_pack then
-        player.remove_item{name = STARTER_PACK, count = 1}
+    if not platform then
+        -- 把当时的闸门状态一并记下来：如果哪天引擎改成"锁了就连脚本也不让建"，
+        -- 这条 log 是唯一能立刻指出真凶的线索，否则只会看到一个没有理由的失败。
+        log('[pw] create_space_platform 返回 nil；space_platforms_unlocked = '
+            .. tostring(game.forces.player.is_space_platforms_unlocked()))
+        return nil, 'pw.ship-create-failed'
     end
 
     records()[platform.index] = {owner = player.name, created = game.tick}
-
-    -- 立刻把起步包落地。
-    --
-    -- 【为什么必须显式调这一下】：新建的平台默认处在 waiting_for_starter_pack 状态，
-    -- 等着火箭把起步包送上来，在那之前 LuaSpacePlatform.surface 是 nil
-    -- （文档原话："The surface that belongs to this platform (if it has been created yet)"）。
-    -- 而本场景是从玩家背包里直接扣掉一个起步包换这艘船的，货已经收了，
-    -- 就不该再让玩家去发一次火箭。apply_starter_pack() 正是为这种情况准备的，
-    -- 调完 surface 当场就有，玩家点「登船」立刻能上去。
-    local ok, err = pcall(function() platform.apply_starter_pack() end)
-    if not ok then
-        -- 失败也不回滚：船已经登记了，它只是还停在等起步包的状态，玩家仍可以自己发火箭补上。
-        -- 直接删船反而会把刚扣掉的那个起步包也一起吞掉。
-        log('[pw] apply_starter_pack 失败（飞船仍在，停在等起步包状态）：' .. tostring(err))
-    end
-
-    apply_bounds(platform)
+    apply_bounds(platform)   -- 此刻多半还没有 surface，真正生效的是 on_surface_created 里那次
 
     game.print({'pw.ship-created', player.name})
     return platform
@@ -186,6 +207,10 @@ function M.all()
                 platform = platform,
                 left_hours = math.floor(math.max(0, M.left_ticks(record)) / constants.hour_to_tick),
                 location = location and location.name or nil,
+                -- 起步包还没发射上来的平台没有 surface，登不上去。
+                -- 判据直接用「surface 在不在」而不是比对 state 枚举：
+                -- 能不能登船取决于有没有地方站，这就是那个条件本身。
+                ready = M.is_ready(platform),
             }
         else
             records()[index] = nil

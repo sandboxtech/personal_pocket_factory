@@ -65,20 +65,21 @@ local function render_my_ship(container, player)
     local platform, record = ships.of(player)
     if platform then
         local left = math.floor(math.max(0, ships.left_ticks(record)) / constants.hour_to_tick)
-        head.add{type = 'button', name = 'pw_ov_ship_' .. platform.index,
-                 caption = {'pw.overview-go-ship'}}
-        head.add{type = 'label', caption = {'pw.overview-my-ship', platform.name, left}}
-    else
-        local build = head.add{type = 'button', name = 'pw_ov_build',
-                               caption = {'pw.overview-build-ship'}}
-        head.add{type = 'label', caption = {'pw.overview-no-ship-hint'}}
-        -- 起步包不在背包里就先禁掉按钮，把「为什么点不了」写进 tooltip，
-        -- 而不是让玩家点一次、吃一条报错才知道。真正的闸门仍在 ships.create 里。
-        if storage.ship_require_starter_pack ~= false
-                and player.get_item_count('space-platform-starter-pack') < 1 then
-            build.enabled = false
-            build.tooltip = {'pw.ship-no-pack'}
+        local board_btn = head.add{type = 'button', name = 'pw_ov_ship_' .. platform.index,
+                                   caption = {'pw.overview-go-ship'}}
+        if ships.is_ready(platform) then
+            head.add{type = 'label', caption = {'pw.overview-my-ship', platform.name, left}}
+        else
+            -- 平台已登记，但起步包还没用火箭发上来，surface 不存在，登不上去。
+            -- 禁用按钮并把「下一步该干什么」写进 tooltip，比让玩家点一次吃条报错强。
+            board_btn.enabled = false
+            board_btn.tooltip = {'pw.overview-ship-not-ready'}
+            head.add{type = 'label', caption = {'pw.overview-my-ship-waiting', platform.name}}
         end
+    else
+        head.add{type = 'button', name = 'pw_ov_build', caption = {'pw.overview-build-ship'},
+                 tooltip = {'pw.overview-build-ship-tip'}}
+        head.add{type = 'label', caption = {'pw.overview-no-ship-hint'}}
     end
 end
 
@@ -138,8 +139,12 @@ local function render_row(container, viewer, row)
     end
 
     if ship then
-        actions.add{type = 'button', name = 'pw_ov_ship_' .. ship.index,
-                    caption = {'pw.overview-go-ship'}}
+        local board = actions.add{type = 'button', name = 'pw_ov_ship_' .. ship.index,
+                                  caption = {'pw.overview-go-ship'}}
+        if not ship.ready then
+            board.enabled = false
+            board.tooltip = {'pw.overview-ship-not-ready'}
+        end
     end
 end
 
@@ -169,8 +174,12 @@ function M.show(player)
         for _, ship in ipairs(unowned) do
             local flow = scroll.add{type = 'flow', direction = 'horizontal'}
             flow.style.vertical_align = 'center'
-            flow.add{type = 'button', name = 'pw_ov_ship_' .. ship.index,
-                     caption = {'pw.overview-go-ship'}}
+            local board = flow.add{type = 'button', name = 'pw_ov_ship_' .. ship.index,
+                                   caption = {'pw.overview-go-ship'}}
+            if not ship.ready then
+                board.enabled = false
+                board.tooltip = {'pw.overview-ship-not-ready'}
+            end
             if util.is_veteran(player) then
                 flow.add{type = 'label', caption = {'pw.overview-ship-detail',
                     ship.platform.name, ship.left_hours}}

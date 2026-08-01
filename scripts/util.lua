@@ -1,5 +1,6 @@
 -- 通用工具函数：无状态、无副作用，任何模块都可以 require。
 local constants = require('scripts.constants')
+local ring = require('scripts.ring')
 
 local M = {}
 
@@ -59,6 +60,44 @@ end
 -- 全部覆盖），直接嵌套引用即可，不用在本 mod 里再抄一份星球名翻译。
 function M.planet_label(name)
     return {'', '[planet=' .. name .. '] ', {'space-location-name.' .. name}}
+end
+
+-- 任意 surface 名 → 带图标的可读标签。
+--
+-- 【规则：凡是要让玩家看到"某个平面"的地方，一律走这里，绝不甩裸 surface 名】。
+-- 裸名有三重问题：没图标、不跟客户端语言翻译、而且对戴森环来说 'ring_7' 这种内部标识
+-- 对玩家完全没有意义 —— 他看到"你在 ring_7 的投递口没了"根本不知道说的是谁家。
+--
+-- 三种平面各自的处理：
+--   · 五个公共星球 → planet_label，图标 + 引擎自带的星球名翻译
+--   · 戴森环       → "某某的戴森环"，用星图边缘那个图标（和 HUD 上的回环按钮一致）
+--   · 太空平台     → 平台名本来就是玩家自己取的，配个起步包图标即可
+function M.surface_label(surface_name)
+    if not surface_name then return '?' end
+
+    -- 星球判定走原型表而不是 constants.PUBLIC_PLANETS：即便将来公共星球名单变了，
+    -- 一个真星球的 surface 名也永远能在这里被认出来。
+    if prototypes.space_location[surface_name] then
+        return M.planet_label(surface_name)
+    end
+
+    local surface = game.surfaces[surface_name]
+    if surface and surface.valid then
+        if ring.is_ring_surface(surface) then
+            local owner = ring.owner_name_of(surface)
+            if owner then return {'pw.label-ring-of', owner} end
+            return {'pw.label-ring'}
+        end
+        local platform = surface.platform
+        if platform and platform.valid then
+            return {'', '[item=space-platform-starter-pack] ', platform.name}
+        end
+    end
+
+    -- surface 已经不存在了（被删掉的戴森环、重置中的世界）。名字里还能认出是戴森环的，
+    -- 仍然给一个像样的说法，而不是把 'ring_7' 甩给玩家。
+    if ring.is_ring_name(surface_name) then return {'pw.label-ring'} end
+    return surface_name
 end
 
 return M

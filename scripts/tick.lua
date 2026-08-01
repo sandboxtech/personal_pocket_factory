@@ -119,6 +119,12 @@ script.on_nth_tick(3600, events.safe('nth_tick', function()
         end
     end
 
+    -- 原生建船按钮的闸门：幂等地重锁一次。
+    -- 按钮的解锁是引擎内部行为，我没法从原型里枚举出全部会重新解锁它的路径
+    -- （space-platform 科技只解锁配方，不管这个按钮），所以不枚举、直接每分钟压一遍。
+    -- 代价是一次布尔判断，收益是无论哪条路径把它解开都最迟一分钟内被锁回去。
+    ships.enforce_lock()
+
     -- 公共世界重置：不并入上面那套相位表 —— 它是 per-planet 各自独立的周期
     -- （见 constants.world_reset_minutes），不是"一类任务一个相位"这种形状。
     -- 但同样从"取模"改成"查下次触发时刻"：storage.world_reset_at 本来就是

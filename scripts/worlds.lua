@@ -19,6 +19,8 @@ local constants = require('scripts.constants')
 -- 时才会触发，一直没被发现）。pockets 只依赖 constants/ring/chests，均不依赖 worlds，
 -- 提到顶层不会形成新环。
 local pockets = require('scripts.pockets')
+-- util 只依赖 constants 和 ring，两者都不反向依赖 worlds，顶层 require 不成环。
+local util = require('scripts.util')
 
 local M = {}
 
@@ -124,7 +126,7 @@ end
 local function evacuate(surface)
     for _, player in pairs(game.connected_players) do
         if player.surface == surface then
-            player.print({'pw.world-evacuated', surface.name})
+            player.print({'pw.world-evacuated', util.surface_label(surface.name)})
             pockets.enter(player)
         end
     end
@@ -154,7 +156,7 @@ function M.reset_world(planet_name)
     storage.world_reset_at = storage.world_reset_at or {}
     storage.world_reset_at[planet_name] = game.tick + M.period_of(planet_name)
 
-    game.print({'pw.world-reset', planet_name, storage.world_run[planet_name]})
+    game.print({'pw.world-reset', util.surface_label(planet_name), storage.world_run[planet_name]})
     return true
 end
 
@@ -314,7 +316,7 @@ end
 function M.travel(player, planet_name)
     local surface = game.surfaces[planet_name]
     if not surface or not surface.valid then
-        player.print({'pw.world-not-ready', planet_name})
+        player.print({'pw.world-not-ready', util.surface_label(planet_name)})
         return false
     end
     local origin = player.force.get_spawn_position(surface)

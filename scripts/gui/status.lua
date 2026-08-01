@@ -25,11 +25,21 @@ function M.show(player)
     scroll.style.width = popup.WIDTH - 12
     scroll.style.maximal_height = 640
 
-    claim.render(scroll, player)
-    scroll.add{type = 'line', direction = 'horizontal'}
-    convert.render(scroll, player)
-    scroll.add{type = 'line', direction = 'horizontal'}
-    exp_window.render(scroll, player)
+    -- 三段各自装进一个内嵌 frame，而不是拿一条 line 隔开。
+    -- 一条横线只是"这里断了一下"，三块下沉的面板才能让人一眼看出这是三件独立的事
+    -- （攒体力 / 花体力换经验 / 看经验攒到哪了）。中间那段还有一张兑换预览表，
+    -- 没有边框的话它和上下两段的行会糊成一片。
+    local function section()
+        local frame = scroll.add{type = 'frame', style = 'inside_shallow_frame_with_padding',
+                                 direction = 'vertical'}
+        frame.style.horizontally_stretchable = true
+        frame.style.bottom_margin = 4
+        return frame
+    end
+
+    claim.render(section(), player)
+    convert.render(section(), player)
+    exp_window.render(section(), player)
 end
 
 -- 三段各自处理自己按钮的点击；谁认领了这次点击，就在这里统一重开整个窗口——

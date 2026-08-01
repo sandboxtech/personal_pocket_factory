@@ -19,9 +19,16 @@ function M.surface_name_for(player_index)
     return PREFIX .. tostring(player_index)
 end
 
+-- 只看名字，不要求 surface 还存在。给「surface 已经被删掉，但手上还有它的名字」
+-- 那类场合用（比如登记表里留下的旧坐标、聊天播报里回溯一个已消失的平面）。
+function M.is_ring_name(surface_name)
+    if type(surface_name) ~= 'string' then return false end
+    return string.sub(surface_name, 1, #PREFIX) == PREFIX
+end
+
 function M.is_ring_surface(surface)
     if not (surface and surface.valid) then return false end
-    return string.sub(surface.name, 1, #PREFIX) == PREFIX
+    return M.is_ring_name(surface.name)
 end
 
 -- surface 名反查玩家名。surface 名里存的是 player.index（玩家名可能含非法字符），

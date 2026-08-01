@@ -229,10 +229,12 @@ function M.ensure_defaults()
     storage.ship_width = storage.ship_width or 256           -- 引擎级硬边界，和戴森环同一个思路
     storage.ship_height = storage.ship_height or 512
     storage.ship_home_planet = storage.ship_home_planet or 'nauvis'   -- 默认环绕哪颗星球
-    -- 起步包自备。白送一艘船的话，「上太空」就从一个需要攒产能的目标
-    -- 退化成一个点一下的按钮，太空玩法本来的门槛整个消失。
-    if storage.ship_require_starter_pack == nil then
-        storage.ship_require_starter_pack = true
+    -- 禁用原生的太空平台按钮，让 UI 成为建船的唯一入口。
+    -- 这是归属制成立的前提：船必须都从 ships.create 出生，才谈得上"这是谁的船"。
+    -- 起步包仍然要用火箭发上去，门槛一点没降 —— 换掉的只是"谁来按下创建"这一步。
+    -- 设成 false 就恢复原版行为（那样会重新出现无主飞船，见 scripts/ships.lua）。
+    if storage.ship_lock_native_creation == nil then
+        storage.ship_lock_native_creation = true
     end
 
     -- ══ 相位调度器（大类周期任务：科技丢失、戴森环生命周期……） ══

@@ -10,6 +10,7 @@
 local constants = require('scripts.constants')
 local events = require('scripts.events')
 local ring = require('scripts.ring')
+local util = require('scripts.util')
 
 local M = {}
 
@@ -247,7 +248,7 @@ local function on_built(event)
                     old_chest.destroy()
                     local old_player = game.players[player_index]
                     if old_player then
-                        old_player.print({'pw.dropoff-replaced', old.surface})
+                        old_player.print({'pw.dropoff-replaced', util.surface_label(old.surface)})
                     end
                 end
                 -- old_chest 为 nil：旧箱子已经不在了（被挖走或世界重置清掉了），

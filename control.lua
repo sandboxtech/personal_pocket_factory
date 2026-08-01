@@ -13,6 +13,7 @@ local worlds = require('scripts.worlds')
 local players = require('scripts.players')
 local ring = require('scripts.ring')
 local pockets = require('scripts.pockets')
+local ships = require('scripts.ships')
 
 -- 区块生成时涂砖。走 events 总线而不是直接 script.on_event，避免和别处的订阅互相覆盖。
 events.on(defines.events.on_chunk_generated, events.safe('chunk', ring.on_chunk_generated))
@@ -40,6 +41,7 @@ script.on_init(function()
     constants.ensure_defaults()
     players.setup_perm_group()
     unlock_all_space_locations()
+    ships.enforce_lock()        -- 禁用原生建船按钮，UI 是唯一入口
 
     worlds.ensure_surfaces()   -- 把五个星球的 surface 显式建出来，不再等玩家开船降落
     for _, name in ipairs(constants.PUBLIC_PLANETS) do
@@ -54,6 +56,7 @@ script.on_configuration_changed(function()
     constants.ensure_defaults()
     players.setup_perm_group()
     unlock_all_space_locations()
+    ships.enforce_lock()
     worlds.ensure_surfaces()
     worlds.schedule_all(false) -- 已排期的世界保持原计划，只给新增的补排
     -- 把已存在的戴森环全部重新 ensure 一遍，补齐半成品环缺失的收货箱阵。
