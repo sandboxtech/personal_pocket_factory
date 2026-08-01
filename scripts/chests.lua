@@ -76,21 +76,14 @@ function M.ensure_array(surface, player)
                 chest.link_id = link_id
                 chest.destructible = false   -- 不可摧毁
                 chest.minable = false        -- 不可挖走
-                -- operable = false —— 挡住【管理员】的那道锁。
+                -- 防偷三道锁，各管一路：
+                --   · gui_mode = "admins"（原版 linked-chest 原型自带）挡普通玩家
+                --   · operable = false 挡管理员 —— 能打开界面的人就能编辑 link_id，
+                --     一改那个箱子就指向别人的库存了
+                --   · neutral force 挡「凭空造一个用这个 link_id 的箱子」（玩家造的恒属 player force）
                 --
-                -- 原版 linked-chest 原型自带 gui_mode = "admins"（Factorio 安装目录
-                -- data/base/prototypes/entity/entities.lua），普通玩家根本打不开这个
-                -- 界面。所以防偷是两道锁分工，各管一半人群：
-                --   · gui_mode = "admins"  挡住普通玩家
-                --   · operable = false     挡住管理员
-                --   · neutral force        挡住「凭空造一个能用这个 link_id 的箱子」（玩家造的恒属 player force）
-                --
-                -- 曾经试过设成 true 让箱主能自己开箱取货，但实测发现：能打开界面的人就能编辑 link_id，
-                -- 而「能打开的人」包括所有管理员 —— 单人游戏的主机、以及小型服务器上通常不止一个的管理员。
-                -- 一旦有人（哪怕无意）改了 link_id，那个箱子就指向别人的库存了。
-                --
-                -- 代价：箱主自己也打不开自己的收货箱，取货必须靠机械臂。这是明确接受的。
-                -- 机械臂和传送带完全不受 operable 影响 —— 它只管玩家 GUI。
+                -- 代价是箱主自己也打不开，取货必须靠机械臂。operable 只管玩家 GUI，
+                -- 机械臂和传送带完全不受影响。
                 chest.operable = false
             else
                 -- create_entity 返回 nil（位置被占、砖不可建造等）。这一支曾经是完全静默的，

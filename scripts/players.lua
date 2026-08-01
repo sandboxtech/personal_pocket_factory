@@ -18,31 +18,18 @@ local gui = require('scripts.gui.init')
 
 local M = {}
 
--- 本场景【默认不禁用玩家任何生产相关的权限】，包括蓝图库。
+-- 【唯一被禁的是「绕开 UI 自己建船 / 删船」】。生产相关权限一律不禁，包括蓝图库 ——
+-- 重置的是公共世界，玩家产线在戴森环里本来就不重置，蓝图加速不了任何东西。
+-- 关联箱的防偷因此走实体级的 operable = false，不靠权限组，见 chests.lua。
 --
--- v1 禁蓝图的理由是「允许蓝图库的话，重置后 Ctrl+V 一秒恢复布局，重置就只剩重跑一遍物流」。
--- 但这条理由在本版已经不成立：重置的是【公共世界】，而玩家的产线在【戴森环】里，
--- 本来就不会被重置。公共世界上只有采集前哨，那本来就该是能快速重铺的东西。
--- 本版真正的持续压力来自科技漏水和弃厂公有化，蓝图一个都加速不了。
+-- 建船必须都从 ships.create 出生，否则脚本不知道船是谁的。而
+-- lock_space_platforms() 只是关掉那个按钮，火箭井里还有一条
+-- open_new_platform_button_from_rocket_silo，锁按钮挡不住。
 --
--- 关联箱的防偷因此不能靠权限组，改用实体级的 operable = false，见 chests.lua。
---
--- ══ 唯一被禁的是「绕开 UI 自己建船 / 删船」这一组动作 ══
---
--- 归属制成立的前提是【每艘船都从 ships.create 出生】，否则脚本不知道船是谁的。
--- ships.enforce_lock() 调的 lock_space_platforms() 只是【关掉那个按钮】
--- （引擎文档原话："disables the space platforms button"），而建船的入口不止一个：
--- input_action 里明明白白有一条 open_new_platform_button_from_rocket_silo ——
--- 火箭井里还有一条路。只锁按钮挡不住它。
---
--- 删船同理，而且更要紧：delete_space_platform 是玩家自己就能触发的动作，
--- 一旦放行，任何人都能删【任何一艘】船（飞船全服公有，谁都能登船，也就都能删）。
--- 这比偷关联箱严重得多且不可撤销。所以删船只走 UI 那条路：
--- scripts/gui/overview.lua 的拆船按钮 → ships.scuttle(player)，只拆调用者自己那艘。
---
--- cancel_delete_space_platform 【故意不禁】：禁掉它只会让某个由别的路径排上的删除
--- 变得撤销不了，纯粹有害无益。
--- rename_space_platform 也不禁：归属记在 storage 的平台 index 上，改名纯属外观。
+-- 删船更要紧：飞船全服公有谁都能登，放行 delete_space_platform 等于谁都能删任何一艘，
+-- 且不可撤销。只留 overview 的拆船按钮 → ships.scuttle，只拆调用者自己那艘。
+-- cancel_delete_space_platform 和 rename 故意不禁：前者禁了只会让删除撤不回，
+-- 后者归属记在平台 index 上，改名纯属外观。
 local ACTION_GROUPS = {
     {
         -- 复用飞船那个开关：它的含义本来就是「UI 是建船的唯一入口」。

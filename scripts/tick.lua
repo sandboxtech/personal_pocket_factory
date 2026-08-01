@@ -1,27 +1,13 @@
 -- 周期任务调度（相位调度器）+ GUI 点击路由。
 --
--- 用【显式相位】代替 v1 的互质质数取模（3607 / 3613 / 613）：
--- 老写法把"周期多长"和"错开多少"焊死在同一个数字里 —— 取模基数本身就是周期，
--- 想调周期，几件任务的错开关系就跟着全变了，而且从代码里根本读不出
--- "科技丢失和戴森环生命周期到底差几分钟触发"这种信息，得心算取模基数才知道。
+-- 每类任务在 storage.cycle_next_at 里各自记一个"下次触发的 tick"，周期
+-- （cycle_minutes）和相位间隔（cycle_phase_minutes）是两个独立配置项。
+-- 不用取模是因为取模答不出"还要多久触发"，而传送页面的倒计时需要这个数。
 --
--- 新写法：每类任务在 storage.cycle_next_at 里各自记一个"下次触发的 tick"，
--- 周期（storage.cycle_minutes）和相位间隔（storage.cycle_phase_minutes）是两个
--- 独立的配置项，改一个不影响另一个 —— "科技整点掉、戴森环 05 分查"是看得见的配置，
--- 不是质数取模那种"改一个动全身"的隐式安排。
--- 用"存下次触发 tick"而不是取模，是因为取模答不出"还要多久触发"，
--- 而 UI（传送页面的倒计时）需要这个信息。
---
--- 性能：本文件是全场景唯一的高频调度入口。原来挂在【每 tick 触发】的事件上，引擎每秒调 60 次 Lua。
--- 为什么 1 分钟就够：本场景【没有任何东西的变化快于一分钟】——
--- 体力每分钟涨 1 点，所有倒计时显示的都是分钟，周期任务本身也是小时级。
--- 比一分钟更勤地刷新，看到的永远是同一个数。
--- 改用 script.on_nth_tick(3600)（约 1 分钟一次）后 Lua 调用次数降到 1/3600，
--- 且不影响正确性：下面所有周期任务都是"维护一个下次触发 tick、tick >= at 才触发"的写法，
--- 不是取模判断，检查间隔从 1 tick 放宽到 3600 tick 只是让触发时刻最多晚约 1 分钟（3599/3600 秒），
--- 不会漏判、也不会因为跳过了某个 tick 而错过取模命中的那一刻。
--- events 总线（scripts/events.lua）目前只包住 script.on_event，不认 on_nth_tick，
--- 所以这里直接调 script.on_nth_tick，外面套一层 events.safe 保出错不崩服。
+-- 【1 分钟一次就够】：本场景没有任何东西变化快于一分钟（体力每分钟涨 1 点，
+-- 倒计时全是分钟级）。所有任务都是"tick >= at 才触发"，放宽检查间隔只会让触发
+-- 最多晚一分钟，不会漏判。
+-- events 总线只包 script.on_event 不认 on_nth_tick，所以这里直接调，外面套 events.safe。
 local events = require('scripts.events')
 local pockets = require('scripts.pockets')
 local worlds = require('scripts.worlds')
@@ -56,21 +42,11 @@ local CYCLE_TASKS = {
     { key = 'ship_lifecycle', phase_index = 3, fn = function() ships.tick_lifecycle() end },
 }
 
--- 把 tech_loss 的下次触发时刻镜像进 storage.tech_loss_next_at 一份，
--- 供 worlds.tech_loss_time_left() 读（GUI 倒计时用）。
---
--- 为什么不让 worlds.tech_loss_time_left() 直接调 M.time_left('tech_loss')：
--- 本文件在模块顶层 require 了 worlds（调度 tick_tech_loss 要用到），
--- Factorio 又不允许在函数体内 require 来延迟绕开循环，所以 worlds 绝对不能
--- 反过来 require 本文件，否则就是模块级循环依赖。于是选择反方向的耦合：
--- 调度器（本文件）知道 worlds 那个字段的存在并负责写它，worlds 只管读，
--- 依赖方向保持单向（tick → worlds），不新增边。
--- 需要被 UI 读到倒计时的任务，各自镜像到一个 storage 字段。
--- 加一项就在这张表里加一行，不用改下面的调度逻辑。
+-- 需要被 UI 读到倒计时的任务，各自镜像一份到 storage 字段。
+-- 本文件顶层 require 了 worlds，所以 worlds 不能反过来 require 本文件（模块级循环）——
+-- 于是由调度器负责写，worlds 只管读，依赖方向保持单向。
 local MIRRORED = {
     tech_loss = 'tech_loss_next_at',
-    -- auto_convert 曾经也镜像过一份，供传送页做倒计时。周期改成 1 分钟之后
-    -- 那个倒计时永远显示 0，界面改成直接说明节奏，这份镜像随之成了死代码，已删。
 }
 
 local function sync_task_mirror(key, at)
@@ -104,11 +80,7 @@ function M.time_left(key)
     return at - game.tick
 end
 
--- HUD 刷新：原来是"取模"节流阀（tick % hud_refresh_ticks == 0）。
--- 检查频率从每 tick 降到每 3600 tick（调度器间隔）之后，613 这种模数更是完全不会命中
--- （game.tick 是 3600 的倍数时才检查，613 % 3600 ≠ 0，取模条件永不碰撞）。
--- 所以改成和上面周期任务同一套"存下次触发 tick"写法：不取模、直接比大小，
--- 检查频率再怎么降都不影响命中，只影响命中的时刻最多晚多少。
+-- HUD 刷新走和上面周期任务同一套"存下次触发 tick"写法。
 local function ensure_hud_scheduled()
     if not storage.hud_next_refresh_at then
         storage.hud_next_refresh_at = game.tick + (storage.hud_refresh_ticks or 3600)
@@ -119,18 +91,11 @@ script.on_nth_tick(3600, events.safe('nth_tick', function()
     local tick = game.tick
     storage.cycle_next_at = storage.cycle_next_at or {}
 
-    -- 补齐新增的默认字段。
-    --
-    -- 【为什么不能只靠 on_configuration_changed】：那个事件只在 mod 列表/版本变化时触发。
-    -- 本项目的实际更新方式是「只替换 scenario 目录里的 lua 文件，再 game.reload_script()」——
-    -- reload_script 重新加载脚本、重新注册事件，但【不触发 on_init 也不触发
-    -- on_configuration_changed】，于是新版本新增的 storage 字段一个都不会被写进去。
-    -- 后果不是报错而是静默错误：新加的表字段读出 nil，代码里 `或` 兜底不了表
-    -- （storage.starter_items or {} 兜出来是空表 → 新玩家一件起手物资都拿不到）。
-    --
-    -- ensure_defaults 全部是「== nil 才写」的判断，幂等且极便宜（几十次比较），
-    -- 每分钟跑一遍换来的是「不管脚本以什么方式换进来，最迟一分钟后配置就是齐的」。
-    -- 注意它只补【缺失】的字段，不会把管理员改过的值改回去，也不会更新老字段的旧值。
+    -- 补齐新增的默认字段。【game.reload_script() 不触发 on_init 也不触发
+    -- on_configuration_changed】，而那是本项目的实际更新方式，新增的 storage 字段
+    -- 一个都不会被写进去 —— 后果还不是报错而是静默错误（starter_items 读出 nil，
+    -- `or {}` 兜出空表，新玩家一件起手物资都拿不到）。
+    -- 只补【缺失】的字段，不改管理员设过的值，也不更新老字段的旧值。
     constants.ensure_defaults()
 
     -- 大类周期任务：逐个检查是否到了各自的下次触发时刻（存 tick，不取模）。
@@ -155,14 +120,8 @@ script.on_nth_tick(3600, events.safe('nth_tick', function()
     -- 代价是一次布尔判断，收益是无论哪条路径把它解开都最迟一分钟内被锁回去。
     ships.enforce_lock()
 
-    -- 公共世界重置：不并入上面那套相位表 —— 它是 per-planet 各自独立的周期
-    -- （见 constants.world_reset_minutes），不是"一类任务一个相位"这种形状。
-    -- 但同样从"取模"改成"查下次触发时刻"：storage.world_reset_at 本来就是
-    -- 这个形状（每个星球一个到期 tick），worlds.next_reset_at() 取其中最近的一个，
-    -- 真到期了才调用 tick_check()，而不是像 v1 那样用一个和真实周期无关的
-    -- 取模常数（3607）去隔几十秒抽查一次。
-    -- 预警要【每分钟都查】，不能塞进下面那个"到期才查"的分支里：
-    -- 预警的触发时刻比重置早好几分钟，而 next_reset_at 只认重置那一刻。
+    -- 公共世界重置不并入上面那套相位表：它是 per-planet 各自独立的周期。
+    -- 预警要【每分钟都查】，不能塞进"到期才查"的分支 —— 它比重置早好几分钟触发。
     worlds.tick_warn()
 
     local next_reset = worlds.next_reset_at()

@@ -40,13 +40,8 @@ local function ring_should_hide(player_name)
     return storage.ring_state[player_name] ~= 'public'
 end
 
--- 【纯观感功能，绝不允许它中断建环流程】——这不是防御性编程的客套话，是修 bug 修出来的规矩：
--- 这行曾经写成 set_surface_hidden(true, surface)（参数顺序反了），抛出
--- InvalidSurfaceIdentification，而它当时【排在 chests.ensure_array 前面】，
--- 于是被事件总线的 pcall 吞掉之后，12 个收货箱压根没被创建 ——
--- 玩家看到的现象是「地板在、箱子没了」，从表象上完全联想不到「隐藏 surface」这个功能。
--- 所以现在：① 参数顺序以 runtime-api.json 为准（surface 在前、hidden 在后，已核对 order 字段）；
--- ② 单独 pcall，失败只写 log；③ 在 ensure() 里排到最后，前面的关键步骤全做完才轮到它。
+-- 【纯观感，绝不允许它中断建环流程】。参数顺序 surface 在前、hidden 在后
+-- （runtime-api.json 的 order 字段为准，曾经写反过）。单独 pcall，且在 ensure() 里排最后。
 local function sync_visibility(surface, player_name)
     local hidden = ring_should_hide(player_name)
     local force = game.forces.player
@@ -60,37 +55,20 @@ local function sync_visibility(surface, player_name)
     end
 end
 
--- 让平面列表里显示玩家名，而不是内部名 ring_7。
---
--- 【改的是 localised_name，不是 name】。surface.name 虽然可写，但它是全服唯一的键：
--- 一个叫 nauvis 或 ring_3 的玩家就能撞车建不出环，而且本项目所有"这是不是环"的判断
--- （ring.is_ring_name）和反查主人（ring.owner_name_of）都建立在 ring_<index> 这个格式上，
--- 改名等于把这套索引连根拔掉。localised_name 是引擎专为此提供的显示层字段：
--- 文档原话 "will replace the internal surface name in places where a player sees surface name"。
--- 内部标识稳定，玩家看到的是人名，两边互不干扰。
---
--- 放在 ensure() 里每次重设（而不是只在建环时设一次），是为了跟上玩家改名。
+-- 平面列表里显示玩家名而不是内部名 ring_7。
+-- 【改 localised_name，不是 name】：后者是全服唯一的键，而且 ring.is_ring_name /
+-- ring.owner_name_of 都建立在 ring_<index> 这个格式上，改名等于把索引连根拔掉。
+-- 每次 ensure 都重设，跟上玩家改名。
 local function sync_label(surface, player)
     surface.localised_name = player.name
 end
 
--- 戴森环永昼。
+-- 戴森环永昼。环里没有矿，长期电力实际上只有太阳能一条路（燃料和核电都得从公共
+-- 星球背回来），而太阳能夜里归零就得先攒蓄电池产能 —— 对一个离线也在计时的场景，
+-- 这道门槛卡的正是最不该被卡的新人。代价是蓄电池在环内失去意义，明确接受。
 --
--- 【这不只是好看】：环里【一颗矿都没有】，第一套电力只能是水池边的锅炉蒸汽机，
--- 之后的长期电力实际上只有太阳能这一条路（燃料和核电都要从公共星球背回来）。
--- 而太阳能一到夜里就归零 —— 在原版这靠蓄电池解决，但那意味着新玩家必须先攒够
--- 蓄电池的产能，才敢让工厂在无人值守时继续跑。对一个「离线也在计时」的场景来说，
--- 这道门槛卡的正是最不该被卡的那批人。
---
--- 永昼把这道门槛整个移走：太阳能板 24 小时满出力，不需要蓄电池也不会半夜停摆。
--- 代价是蓄电池在环内失去意义，这是明确接受的 —— 公共星球上仍然要用。
---
--- 用 always_day 而不是 freeze_daytime + daytime = 0：后者只是把时钟停住，
--- 语义上是"时间不走了"；always_day 是引擎专门的"太阳恒亮"开关
--- （文档原话 "the sun will always shine"），意图更直白，也不会被别处改 daytime 打断。
---
--- 和 sync_label 一样【每次 ensure 都重设】：老环是在这个功能之前建的，
--- 靠这里补上；配置改了也能靠周期任务铺开，不需要重建环。
+-- 用 always_day 而不是 freeze_daytime：后者只是把时钟停住，还会被别处改 daytime 打断。
+-- 每次 ensure 都重设，所以老环不用重建也能补上。
 local function sync_daylight(surface)
     surface.always_day = storage.ring_always_day ~= false
 end
@@ -104,8 +82,7 @@ local function create_surface(player)
         M.surface_name(player),
         constants.ring_map_gen(seed, storage.ring_height or 64))
 
-    surface.always_day = true        -- 永昼：这里是工作间，不需要夜战和照明负担
-    surface.freeze_daytime = true
+    surface.freeze_daytime = true    -- 永昼本身由 sync_daylight 按配置设
     surface.show_clouds = false
 
     -- 关掉污染。
@@ -129,12 +106,8 @@ end
 
 -- 惰性创建 + 自愈。已存在的环不重复建，但下面那几步【每次都跑一遍】。
 --
--- 为什么不是「已存在就直接 return」：那样写的话，任何一次建环中途出错留下的半成品环
--- 就永远修不好了 —— 上面 set_surface_hidden 参数写反那次正是如此，环建出来了、
--- 地板也有（涂砖走的是 on_chunk_generated 这条独立路径），唯独 12 个收货箱缺席，
--- 而且此后每次进环都从第一行直接返回，永远不会补建。
--- 现在这几步全部幂等（ensure_chunks 对已生成区块是 no-op，ensure_array 逐位置跳过已存在的箱子），
--- 每次调用重跑一遍的代价可以忽略，换来的是「进一次环就自动修一次」。
+-- 不写成「已存在就直接 return」：那样的话任何一次建环中途出错留下的半成品环就永远修不好。
+-- 下面几步全部幂等，重跑的代价可以忽略，换来「进一次环就自动修一次」。
 function M.ensure(player)
     local surface = M.get(player)
     if not (surface and surface.valid) then

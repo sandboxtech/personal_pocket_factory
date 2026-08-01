@@ -39,38 +39,15 @@ function M.ensure_surfaces()
     end
 end
 
--- 给公共世界套上有限边界，并可选地换一颗新种子。
+-- 把矿脉调大。公共世界几小时清空一次，原版矿脉尺寸是按几十小时一局调的，
+-- 照搬会让建设时间吃掉整轮的大半。
 --
--- width/height 是 MapGenSettings 的引擎级硬边界，边界外是 out-of-map，引擎不生成区块，
--- 存档体积从根上受控。
--- 【注意】改 map_gen_settings 只影响【之后生成】的区块，所以必须在 clear() 之前设好。
+-- 【只放大已有的矿，绝不新增条目】：autoplace_controls 里出现某个矿名，含义是
+-- "这颗星球生成这种矿"，不是"如果生成就用这个尺寸"。遍历全局矿种写进去的话，
+-- Nauvis 会真的长出废料，SA「每颗星球有独特资源」的设计被整个抹平。
 --
--- seed 传了才换。首次建面时不需要换（用星球自带的种子），
--- 重置时必须换 —— 否则 clear() 会用同一颗种子重新生成【同一张图】，
--- 「每轮都是新鲜世界」这个前提就垮了。
--- 把矿脉调大。
---
--- 【为什么公共世界的矿必须比原版夸张】：这些星球几个小时就清空一次。
--- 原版的矿脉尺寸是按「一局几十小时、慢慢铺开」调的，放在这里就意味着玩家刚把采矿场
--- 建起来、传送带刚接通，世界就没了 —— 建设时间占了整轮的大半，真正产出的时间没多少。
--- 调大矿脉不是放水，是把「单位时间能挖多少」拉回到和世界寿命匹配的量级。
---
--- 【只调这颗星球本来就有的矿，绝不新增条目】——这一条是踩过坑之后写死的规矩。
---
--- 曾经的写法是遍历 prototypes.autoplace_control（全局所有矿），按 category == 'resource'
--- 挑出来，逐个写进 mgs.autoplace_controls。理由当时看着很充分：五个星球的矿完全不同
--- （钨、方解石、废料、锂……），写死名单必然漏。但那个循环干的其实是两件事：
--- 「把已有的矿调大」和【「把这颗星球本来没有的矿开出来」】—— 后者纯属误伤。
--- autoplace_controls 里出现某个矿名，含义是"这颗星球生成这种矿"，不是"如果生成就用这个尺寸"。
--- 于是废料（Fulgora 专属）被写进了 Nauvis 的设置，Nauvis 就真的长出了废料堆；
--- 钨、方解石、锂同理。Space Age「每颗星球有独特资源、逼你出门」的整个设计被抹平了。
---
--- 现在改成遍历 mgs.autoplace_controls 自己已有的键：星球的资源名单原样保留
--- （Fulgora 有且只有 scrap，Vulcanus 是钨/方解石/硫酸泉/煤，见游戏本体
---  data/space-age/prototypes/planet/planet-map-gen.lua），只有尺寸被放大。
--- 仍然按 category == 'resource' 过滤：这张表里也有地形/悬崖/敌人的控制项
--- （fulgora_islands、gleba_cliff、vulcanus_volcanism 之类），那些不是产出，
--- 调了只会改变地貌观感，而把 size 塞给敌人控制项还会真的改变虫子数量。
+-- 仍按 category == 'resource' 过滤：这张表里还有地形/悬崖/敌人的控制项，
+-- 把 size 塞给敌人控制项会真的改变虫子数量。
 local function boost_resources(mgs)
     local boost = storage.world_resource_boost
     if type(boost) ~= 'table' then return end
@@ -88,20 +65,10 @@ local function boost_resources(mgs)
     end
 end
 
--- 把这颗星球的地图生成设置先还原成原型自带的状态。
---
--- 【这一步是为了洗掉脚本自己写进去的污染】，不是保险措施：
--- map_gen_settings 是【存进存档的】，脚本每次写进去的东西会一直留着。
--- 旧版 boost_resources 把全部矿种写进了每颗星球的 autoplace_controls，
--- 光把那个循环改对并不能让废料从 Nauvis 上消失 —— 那个键已经躺在存档里了，
--- 新的循环遍历"已有的键"时照样会看见它、照样把它调大。
--- reset_map_gen_settings() 直接回到原型状态（引擎文档："Resets the map gen settings
--- on this planet to the default from-prototype state"），星球的原生矿种名单
--- 和 autoplace_settings 白名单一并复原，此后每轮重置都从干净状态重新叠加。
---
--- 幂等，每次重置都跑一遍不会累积任何东西 —— 这正是它的价值：
--- 无论存档里此刻攒了多少历史污染，下一轮重置之后都归零。
--- 宽高和种子在本函数后面重新设，boost 也重新叠，所以还原不会丢掉任何需要的设置。
+-- 先还原成原型自带的地图生成设置，洗掉脚本历史上写进去的东西。
+-- 【map_gen_settings 是存进存档的】：光把 boost_resources 改对不能让废料从 Nauvis 消失，
+-- 那个键已经躺在存档里，新循环遍历"已有的键"照样会看见它。
+-- 幂等，宽高/种子/boost 都在本函数之后重新叠，还原不会丢掉需要的设置。
 local function reset_to_prototype(surface)
     local planet = game.planets[surface.name]
     if not (planet and planet.valid) then return end
@@ -112,20 +79,12 @@ local function reset_to_prototype(surface)
     end
 end
 
--- 每轮换一套气候，让「这轮草原、下轮沙漠」由【引擎在生成区块时】算出来。
+-- 每轮换一套气候，让「这轮草原、下轮沙漠」在【生成之前】就定下来，
+-- 引擎连装饰物带悬崖一起自洽地算出来。想改地貌就改地图生成的输入，不要在输出上打补丁。
 --
--- 【这一段取代了旧的脚本重涂地块方案】。旧方案的做法是：等引擎原生生成完，再挂
--- on_chunk_generated 用自己的噪声场把地块名整片改写一遍。它有三个绕不过去的问题：
---   1. 量化是阶跃函数，两种砖的分界恰好落在噪声等值线上 —— 整颗星球像一张等高线图；
---   2. 改写只换砖名，引擎在生成阶段算好的装饰物、悬崖、树种分布仍然对应【原来】的地块，
---      于是草地上长着沙漠的装饰物；
---   3. 名单同时充当"哪些格子有资格被换"的筛选集，想减少色带就必然缩小筛选集。
--- 引擎自己在生成阶段就有这个旋钮，用它一个数就够，上面三个问题一个都不存在。
---
--- 只对 Nauvis 生效：aux/moisture 这两个气候变量是 Nauvis 专有的
--- （base/prototypes/planet/planet-map-gen.lua 第 6~7 行的 aux_climate_control /
--- moisture_climate_control）。其余四星的地表走各自的专用表达式，压根不读这两个变量。
--- 它们仍然每轮换种子，地图照样是全新的，只是没有"整体偏干/偏湿"这一维。
+-- 只对 Nauvis 生效：aux/moisture 是 Nauvis 专有的气候控制
+-- （base/prototypes/planet/planet-map-gen.lua:6-7）。其余四星走各自的地表表达式，
+-- 仍然每轮换种子，只是没有"整体偏干/偏湿"这一维。
 local function randomize_climate(mgs, planet_name, seed)
     if planet_name ~= 'nauvis' then return end
 
@@ -168,10 +127,8 @@ function M.apply_bounds(surface, seed)
     boost_resources(mgs)
 
     -- 气候覆写单独试一次，失败了退回到"只有边界和矿脉"的设置重新写。
-    -- 【为什么值得这么小心】：property_expression_names 的键是引擎内部的表达式名，
-    -- 写错一个字符，整条赋值就抛错 —— 而这条赋值是世界重置流程的必经之路，
-    -- 炸在这里等于整颗星球再也重置不了。边界和矿脉是刚需，气候只是好看，
-    -- 所以宁可丢掉气候也要把刚需写进去。
+    -- property_expression_names 的键是引擎内部表达式名，写错一个字符整条赋值就抛错，
+    -- 而这条赋值是重置流程的必经之路。边界和矿脉是刚需，气候只是好看。
     local plain = surface.map_gen_settings
     plain.width, plain.height = size, size
     if seed then plain.seed = seed end
@@ -185,17 +142,9 @@ function M.apply_bounds(surface, seed)
     end
 end
 
--- 由星球名和轮次确定性地派生一颗种子。
---
--- 确定性（而不是 math.random）是有意的：同一个存档回滚重放会得到同样的地图，
--- 便于复现问题；而且多人下不依赖随机数状态，不会有同步隐患。
---
--- 用 bit32.bxor 而不是 5.3+ 的 `~` 运算符：Factorio 的场景脚本跑在 Lua 5.2 环境里，
--- 5.2 没有原生位运算符（`~` 在 5.2 里根本不是合法的二元运算符，会直接语法错误），
--- 只提供 bit32 库；本项目的 scripts/noise.lua 顶部 `local bit32_band = bit32.band`
--- 已经是这个环境里 bit32 可用、且是正确写法的实证。
---
--- 结果必须落在 uint32 范围内 —— Factorio 的 seed 是 uint32，超范围会被截断或报错。
+-- 由星球名和轮次确定性地派生种子。用确定性而不是 math.random：回滚重放得到同样的地图，
+-- 多人下也不依赖随机数状态。
+-- bit32.bxor 而不是 5.3+ 的 `~`：场景脚本跑在 Lua 5.2，那个运算符会直接语法错误。
 function M.derive_seed(planet_name, run)
     local h = 2166136261                      -- FNV-1a 的 offset basis
     for i = 1, #planet_name do
@@ -364,10 +313,8 @@ function M.tick_check()
     return nil
 end
 
--- 【为什么用 physical_surface 而不是 surface】：LuaPlayer.surface 是"当前操控/正在看的"
--- 那个面，遥控视角看着 Nauvis 的人也算在内 —— 但他的人和背包都在自己环里，
--- 星球清空一根毛都掉不了。physical_surface 才是"身体真的站在这儿"，
--- 也就是【会连人带货一起被清掉】的那批人。预警要发给会挨打的人，不是发给围观的人。
+-- 用 physical_surface 而不是 surface：后者含遥控视角，那些人的身体在自己环里，
+-- 星球清空一根毛都掉不了。预警要发给会挨打的人，不是围观的人。
 local function players_physically_on(surface)
     local out = {}
     for _, player in pairs(game.connected_players) do
@@ -627,9 +574,7 @@ end
 
 -- 清空结算完毕 → 把这颗星球的统计归零。
 --
--- 【只认公共星球】：事件对任何被 clear 的 surface 都会触发。戴森环目前不走 clear
--- （删环用的是 delete_surface），但这个判断不能省 —— 将来任何人给环加一条 clear 路径，
--- 都不该顺带把那个人的长期产量曲线抹掉。
+-- 只认公共星球：事件对任何被 clear 的 surface 都触发，绝不能顺带抹掉某个人环里的曲线。
 local function on_surface_cleared(event)
     local surface = game.surfaces[event.surface_index]
     if not (surface and surface.valid) then return end
