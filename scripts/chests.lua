@@ -35,7 +35,7 @@ local function array_positions()
 end
 
 -- 某人的 12 箱阵此刻应该用哪个 link_id。
--- 公共期（离线 30-50 小时）指向全服公共库存，其余时候指向他自己。
+-- 公共期（离线超过公共化阈值、还没到删除阈值）指向全服公共库存，其余时候指向他自己。
 function M.expected_link_id(player_name)
     storage.ring_state = storage.ring_state or {}
     if storage.ring_state[player_name] == 'public' then
@@ -177,6 +177,87 @@ local function swap(entity, new_name, player_index)
     }
 end
 
+-------------------------------------------------------------------------------
+-- 投递口名额
+--
+-- 玩家自己放的关联箱有个数上限（storage.dropoff_limit，默认 12），
+-- 作用域是【全宇宙合计】，不按星球分别计数。
+--
+-- 为什么是一个总额度而不是「每颗星球一个」：五颗星球的重置周期各不相同，
+-- 「名额押在哪儿」本身就该是个决策 —— 全铺开覆盖五颗星球，还是把好几个
+-- 堆在刚重置完、离矿脉最近的那颗上抢一轮产出。按星球平摊会把这个选择直接抹掉。
+--
+-- 为什么超额时淘汰最早的那个，而不是拒绝放置：
+-- 拒绝放置要求玩家先记住自己在哪几颗星球上还留着箱子、再跑回去挖掉，
+-- 而那些箱子多半早就被世界重置清空了，根本无从查证 —— 玩家会卡在
+-- 「系统说我满了，但我找不到满在哪」这种最糟糕的状态里。
+-- 先进先出永远不会卡住下一次放置，代价只是最老的那个会自己回到背包。
+-------------------------------------------------------------------------------
+
+local function same_spot(rec, surface_name, position)
+    return rec.surface == surface_name and rec.x == position.x and rec.y == position.y
+end
+
+-- 收回一个超额的投递口。箱子已经不在了（被挖走 / 被世界重置清掉）就静默跳过。
+-- near_chest 只用来提供"东西掉在哪儿"的坐标：玩家此刻就站在新箱子旁边。
+local function evict(player_index, rec, near_chest, limit)
+    local surface = rec.surface and game.surfaces[rec.surface]
+    if not (surface and surface.valid) then return end
+    local old_chest = surface.find_entity(LINKED, {rec.x, rec.y})
+    if not (old_chest and old_chest.valid) then return end
+
+    -- 关联箱的库存是共享的（挂在 link_id 上，不挂在箱子实体上），
+    -- 摧毁箱子本身不会丢失货物——货仍留在那份共享库存里，
+    -- 所以这里不需要、也不应该在摧毁前搬运任何物品。
+    old_chest.destroy()
+
+    local player = game.players[player_index]
+    if not player then return end
+
+    -- 把箱子【退还】给玩家，而不是让它凭空消失。
+    -- 名额是位置上的限制，不该顺带变成材料上的惩罚：每挪一次投递口就白烧一个箱子，
+    -- 会让人不敢随便挪，而"挪到更好的矿脉旁边"恰恰是这条规则想鼓励的决策。
+    --
+    -- 背包塞不下时 insert 返回 0，剩下的直接掉在脚边，绝不静默吞掉。
+    local inserted = player.insert{name = LINKED, count = 1}
+    if inserted < 1 then
+        near_chest.surface.spill_item_stack{
+            position = near_chest.position,
+            stack = {name = LINKED, count = 1},
+            enable_looted = true,
+            force = player.force,
+        }
+    end
+    player.print({'pw.dropoff-replaced', util.surface_label(rec.surface), limit})
+end
+
+-- 把新放下的投递口登记进名额表，并淘汰超出上限的最老几个。
+function M.register_dropoff(player_index, chest)
+    storage.dropoffs = storage.dropoffs or {}
+    local list = storage.dropoffs[player_index] or {}
+    local surface_name = chest.surface.name
+    local position = chest.position
+
+    -- 【原地重建】：新箱子恰好落在登记表里已有的坐标上（旧箱子早已不在，
+    -- 这个位置现在站着的就是新箱子本身）。先把那条旧记录摘掉，否则同一个位置
+    -- 会在表里出现两次，淘汰时还可能把刚建好的这个当成"最早的那个"销毁。
+    -- 按坐标摘、而不是比较实体，是因为旧记录指向的实体这时候通常已经不存在了。
+    for i = #list, 1, -1 do
+        if same_spot(list[i], surface_name, position) then table.remove(list, i) end
+    end
+
+    list[#list + 1] = {surface = surface_name, x = position.x, y = position.y}
+
+    -- 夹到至少 1：上限被误设成 0 或负数时，下面的循环会把刚放下的这个也淘汰掉，
+    -- 玩家会看到"箱子放下就消失"这种完全无法自诊断的现象。
+    local limit = math.max(1, math.floor(storage.dropoff_limit or 12))
+    while #list > limit do
+        evict(player_index, table.remove(list, 1), chest, limit)
+    end
+
+    storage.dropoffs[player_index] = list
+end
+
 local function on_built(event)
     local entity = event.entity
     if not (entity and entity.valid) then return end
@@ -221,10 +302,6 @@ local function on_built(event)
     -- gui_mode = "admins" 挡普通玩家，operable = false 挡管理员，neutral force 挡攻击者造假。
     chest.operable = false
 
-    -- ══ 全宇宙范围内，玩家自己放的关联箱只能有 1 个：放新的先摧毁旧的 ══
-    -- 作用域固定是全局、且不区分平面——任何 surface（公共世界的五个星球 + 每个人自己的
-    -- 戴森环）上放的关联箱都算在同一个名额里，不再提供按星球分别计数的可选作用域。
-    --
     -- 判定「这是不是玩家放的箱子」的唯一依据是 entity.destructible：
     -- 戴森环里那 12 个系统收货箱固定 destructible = false，且是脚本 create_entity
     -- （raise_built = false）造出来的，本来就不会触发 on_built_entity/on_robot_built_entity，
@@ -234,51 +311,7 @@ local function on_built(event)
     -- 取不到建造者（player_index 为空，例如机器人建造时 last_user 也拿不到）就不做限制——
     -- 这种箱子已经在 rightful_link_id 里兜底成公共库存了，不属于「某个玩家的投递口」。
     if player_index and chest.destructible then
-        storage.player_chests = storage.player_chests or {}
-        local old = storage.player_chests[player_index]
-        if old then
-            local old_surface = old.surface and game.surfaces[old.surface]
-            if old_surface and old_surface.valid then
-                local old_chest = old_surface.find_entity(LINKED, {old.x, old.y})
-                -- old_chest 和 chest 是同一个实体，说明玩家是【原地重建】：新箱子恰好落在
-                -- 登记表记录的旧坐标上，旧箱子早已不在了（这个位置现在站着的就是新箱子本身）。
-                -- 这种情况绝不能 destroy()，否则摧毁的其实是刚建好的新箱子。
-                -- 用「实体是否同一个」而不是比较坐标数值，是为了不管登记表有没有及时被
-                -- on_player_mined_entity/on_entity_died 清理掉，这条判断都成立。
-                if old_chest and old_chest.valid and old_chest ~= chest then
-                    -- 关联箱的库存是共享的（挂在 link_id 上，不挂在箱子实体上），
-                    -- 摧毁箱子本身不会丢失货物——货物仍留在那份共享库存里，
-                    -- 所以这里不需要、也不应该在摧毁前搬运任何物品。
-                    old_chest.destroy()
-
-                    local old_player = game.players[player_index]
-                    if old_player then
-                        -- 把旧箱子【退还】给玩家，而不是让它凭空消失。
-                        --
-                        -- 「同时只能有一个投递口」是位置上的限制，不该顺带变成材料上的惩罚：
-                        -- 玩家每挪一次投递口就白烧一个箱子，会让人不敢随便挪，
-                        -- 而"挪到更好的矿脉旁边"恰恰是这条规则想鼓励的决策。
-                        --
-                        -- 背包塞不下时 insert 返回 0，剩下的直接掉在脚边，绝不静默吞掉。
-                        -- spill_item_stack 需要 surface + position，用新箱子的位置（玩家就站在旁边）。
-                        local inserted = old_player.insert{name = LINKED, count = 1}
-                        if inserted < 1 then
-                            chest.surface.spill_item_stack{
-                                position = chest.position,
-                                stack = {name = LINKED, count = 1},
-                                enable_looted = true,
-                                force = old_player.force,
-                            }
-                        end
-                        old_player.print({'pw.dropoff-replaced', util.surface_label(old.surface)})
-                    end
-                end
-                -- old_chest 为 nil：旧箱子已经不在了（被挖走或世界重置清掉了），
-                -- 静默跳过，直接用新坐标覆盖登记项即可。
-            end
-            -- old_surface 无效：那个星球/戴森环的 surface 已经不存在了，同样静默跳过。
-        end
-        storage.player_chests[player_index] = {surface = chest.surface.name, x = chest.position.x, y = chest.position.y}
+        M.register_dropoff(player_index, chest)
     end
 end
 
@@ -300,10 +333,11 @@ local function forget_chest(entity)
     -- 实体这一刻仍然有效，position 必须现在取——事件处理完之后实体就没了。
     local surface_name = entity.surface.name
     local position = entity.position
-    storage.player_chests = storage.player_chests or {}
-    for key, rec in pairs(storage.player_chests) do
-        if rec.surface == surface_name and rec.x == position.x and rec.y == position.y then
-            storage.player_chests[key] = nil
+    storage.dropoffs = storage.dropoffs or {}
+    for _, list in pairs(storage.dropoffs) do
+        -- 倒着删：正着走 table.remove 会跳过紧跟其后的那一项。
+        for i = #list, 1, -1 do
+            if same_spot(list[i], surface_name, position) then table.remove(list, i) end
         end
     end
 end

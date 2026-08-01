@@ -33,6 +33,39 @@ local function literal(value)
     return tostring(value)
 end
 
+-- 起手物资的当前值，渲染成图标 + 数量。
+--
+-- 只有这一张表享受「显示当前值」的待遇，是因为它是唯一一张【短、且管理员改它之前
+-- 一定想先看看现在发的是什么】的表配置：其余几张要么长得离谱（world_patch_tiles
+-- 有上百个砖名），要么结构一眼能猜到（world_reset_minutes），给个示例就够了。
+--
+-- 【元素个数必须夹住】：LocalisedString 最多 20 个参数，超了整条字符串会渲染失败
+-- （玩家看到的是一行 "Unknown key" 而不是配置表）。管理员把礼包配成 30 项是完全合理的事，
+-- 不能让它把这个窗口打崩，所以超出部分折叠成省略号。
+local MAX_ITEM_ICONS = 15
+
+local function starter_items_caption()
+    local items = storage.starter_items or {}
+    if #items == 0 then return '{}' end
+
+    local parts = {''}
+    for i, it in ipairs(items) do
+        if i > MAX_ITEM_ICONS then
+            parts[#parts + 1] = string.format('… (+%d)', #items - MAX_ITEM_ICONS)
+            break
+        end
+        -- 物品名写错时富文本会渲染成一个找不到图标的方框，看不出错在哪，
+        -- 所以先查原型：不存在就直接把名字原样打出来，管理员一眼能看见错别字。
+        local name = tostring(it.name)
+        if prototypes.item[name] then
+            parts[#parts + 1] = string.format('[item=%s]%s  ', name, tostring(it.count or 1))
+        else
+            parts[#parts + 1] = string.format('[color=red]%s[/color]×%s  ', name, tostring(it.count or 1))
+        end
+    end
+    return parts
+end
+
 local function applies_cell(grid, applies)
     local color = APPLIES_COLOR[applies] or 'gray'
     local label = grid.add{type = 'label',
@@ -41,14 +74,25 @@ local function applies_cell(grid, applies)
     return label
 end
 
-local function row(grid, key, value_caption, applies, is_example)
+-- 【每行必须正好占 4 格】。这是个 column_count = 4 的 table，少填或多填一格，
+-- 后面所有行都会整体错位一列。所以"值"这一格哪怕要放两行文字，也必须先塞一个 flow
+-- 把它们装进【同一格】里，不能直接 add 两个 label。
+local function row(grid, key, value_caption, applies, is_example, example_caption)
     -- 字段名一列直接给出可复制的完整写法，不用管理员自己拼 storage. 前缀
     grid.add{type = 'label', caption = '[color=yellow]storage.' .. key .. '[/color]'}
 
-    local value = grid.add{type = 'label', caption = value_caption}
+    local cell = grid.add{type = 'flow', direction = 'vertical'}
+    local value = cell.add{type = 'label', caption = value_caption}
     if is_example then
         -- 表结构没有"一个值"可显示，这一格放的是改法示例，用灰色和真实值区分开
         value.style.font_color = {0.7, 0.7, 0.7}
+    end
+    if example_caption then
+        -- 当前值上面已经显示了，这一行是改法示例：灰色、可整行复制粘进控制台。
+        local example = cell.add{type = 'label', caption = example_caption}
+        example.style.font_color = {0.7, 0.7, 0.7}
+        example.style.single_line = false
+        example.style.maximal_width = 320
     end
 
     applies_cell(grid, applies)
@@ -94,7 +138,12 @@ function M.show(player)
                     item.applies, false)
             end
             for _, item in ipairs(tables_) do
-                row(grid, item.key, item.example, item.applies, true)
+                if item.key == 'starter_items' then
+                    -- 起手清单：当前值（图标）在上、改法示例在下。理由见 starter_items_caption。
+                    row(grid, item.key, starter_items_caption(), item.applies, false, item.example)
+                else
+                    row(grid, item.key, item.example, item.applies, true)
+                end
             end
         end
     end

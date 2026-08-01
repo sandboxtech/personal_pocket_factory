@@ -73,9 +73,14 @@ v1 的口袋世界宽高都用 `MapGenSettings.width/height` 这种引擎级硬�
 
 ### 五、科技丢失概率挂瓶子种数
 
-公共世界重置时，每个已研究的有限科技以 `P = k × n / 100` 的概率被撤销（`worlds.tick_tech_loss`，
-独立周期任务，不挂在星球重置上），`n` 是该科技配方里不重复的科技瓶种数，`k = storage.tech_loss_k`
-（默认 1）。
+每一轮漏水（`worlds.tick_tech_loss`，独立周期任务，不挂在星球重置上）先掷一个系数
+`x ~ U(0, storage.tech_loss_k_max)`（默认上限 2），然后每个已研究科技以 `P = x × n / 100`
+的概率被撤销，`n` 是该科技配方里不重复的科技瓶种数。
+
+**`x` 一轮只掷一次，整张科技表共用**。挪进循环里逐科技各掷各的，等于几百次独立同分布判定，
+大数定律会把随机性抹平，每轮丢失数几乎恒定 —— 玩家感觉不到骰子，只感觉到一条匀速下滑的线。
+共用一个 `x` 则整表同起同落：`x` 趋近 0 的那轮几乎什么都不丢，趋近上限的那轮成片地掉。
+期望没变（`E[x] = 上限/2 = 1`，正好是旧版那个固定系数），变的是节奏。
 
 固定概率有个隐患：`automation` 和终局科技一样容易丢，玩家可能上线就发现造不出传送带。
 挂到瓶子种数上之后，科技树越深越容易漏水，地基反而最稳固。更重要的是它形成了一个不需要
@@ -138,7 +143,7 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | `scripts/events.lua` | 事件总线：同一事件多处 `events.on()` 订阅、内部只 `script.on_event` 一次再分发；`events.safe()` 把 handler 包成出错只播报不崩服。 |
 | `scripts/geometry.lua` | 纯函数模块：环等级、半宽、tile 语义计算，戴森环形状的唯一真相源，可脱离游戏跑单测。 |
 | `scripts/ring.lua` | 戴森环涂砖与扩容：把 geometry 算出的语义值查表换成真实砖名，`on_chunk_generated` 的订阅入口，升级时逐区块行重涂新增竖带。 |
-| `scripts/chests.lua` | 关联箱：木箱↔关联箱转化、三道防偷锁、12 箱阵创建与 link_id 切换、全局唯一投递口限制。 |
+| `scripts/chests.lua` | 关联箱：木箱↔关联箱转化、三道防偷锁、12 箱阵创建与 link_id 切换、投递口名额（先进先出）。 |
 | `scripts/exp.lua` | 12 种经验记账 + 兑换：背包手动兑换与收货箱周期自动兑换共用同一套预览/结算逻辑。 |
 | `scripts/stamina.lua` | 体力双池：可领取池按 tick 存、体力池按点存，读时惰性结算，离线玩家零开销、无取整漂移。 |
 | `scripts/players.lua` | 玩家生命周期（创建/加入/重生）+ 权限组（默认不禁用任何权限，含蓝图库）。 |
@@ -172,13 +177,15 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | `quality_exp` | 品质 → 经验系数 | normal=1, uncommon=3, rare=5, epic=7, legendary=9 |
 | `ring_height` / `ring_concrete_height` / `ring_base_half_width` / `ring_per_level` | 环带总高 / 中间可建带高度 / 起步半宽 / 每级两侧各外推多少 tile | 128 / 64 / 32 / 16 |
 | `ring_tiles` | 语义砖名（start/grown/space/void）→ 真实砖原型名 | 见 `constants.lua` |
-| `ring_public_hours` / `ring_delete_hours` / `ring_min_hours` | 离线多久变公共 / 多久删除 / 新玩家阈值下限（按累计在线时长缩放） | 30 / 50 / 1 |
-| `public_size` | 公共世界边长（tile） | 2048 |
+| `ring_public_hours` / `ring_delete_multiple` / `ring_min_hours` | 离线多久变公共（老玩家上限）/ 删除阈值是它的几倍 / 缩放后的下限 | 30 / 3 / 3 |
+| `ring_hide_private` | 私人环是否从遥控视角平面列表隐藏（公共环一律显示） | true |
+| `public_size` / `dropoff_limit` | 公共世界边长（tile）/ 每人同时能放几个投递口（全宇宙合计） | 2048 / 12 |
 | `world_reset_minutes` | 各星球重置周期（table，按星球名索引） | nauvis 60 / vulcanus 120 / fulgora 180 / gleba 240 / aquilo 300 |
 | `world_reset_offset_minutes` | 相邻星球首次排期的错开分钟数 | 10 |
 | `world_patch_tiles` | 各星球地貌斑块候选砖名单 | 见 `constants.lua` |
+| `starter_items` | 新玩家起手物资，整张表替换；未知物品名跳过 | 铁板 500 / 铜板 200 / 石 100 / 木 100 |
 | `cycle_minutes` / `cycle_phase_minutes` / `cycle_base_offset_minutes` | 相位调度器：大类任务周期 / 相位间隔 / 与星球重置错开的基础偏移 | 60 / 5 / 2 |
-| `tech_loss_k` | 科技丢失系数，`P = k × 瓶子种数 / 100` | 1 |
+| `tech_loss_k_max` | 漏水系数上限，每轮取 `x ~ U(0, 上限)`，`P = x × 瓶子种数 / 100` | 2 |
 | `block_blueprint_library` | 权限组是否禁蓝图库 | false（默认不禁） |
 | `detail_hours` | 分级披露门槛：累计在线满多少小时算「老玩家」 | 6 |
 | `debug` | 管理员调试播报 | false |
@@ -196,7 +203,7 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | `tech_loss_next_at` | 相位调度器写、`worlds.tech_loss_time_left()` 读，倒计时 UI 用 |
 | `cycle_next_at[任务key]` | 相位调度器每类任务的下次触发 tick |
 | `hud_next_refresh_at` | HUD 刷新调度 |
-| `player_chests[player_index]` | `{surface, x, y}`，全局唯一投递口的登记表 |
+| `dropoffs[player_index]` | `{surface, x, y}` 数组，按放置先后排列的投递口登记表；超过 `dropoff_limit` 时淘汰下标 1 |
 
 ## 数据流速览
 
@@ -210,11 +217,11 @@ on_init:
 on_player_created:
     钉死 force -> assign_group -> pockets.enter（pockets.ensure 惰性建 + 幂等自愈：
     create_surface(关污染) -> 涂初始区块 -> chests.ensure_array 建 12 箱阵
-    -> ring_state/applied_half 记账 -> set_spawn_position -> 最后才 hide_surface）
+    -> ring_state/applied_half 记账 -> set_spawn_position -> 最后才 sync_label/sync_visibility）
     -> grant_starter -> stamina.add(初始体力，默认倍数 0 即不送)
     -> gui.refresh_hud（主动建 HUD，不等周期任务）
 
-    【顺序不是随手排的】hide_surface 必须在最后：它是纯观感功能，曾经排在建箱阵
+    【顺序不是随手排的】sync_visibility 必须在最后：它是纯观感功能，曾经排在建箱阵
     之前并因为参数写反抛错，把整条建环流程截断，表现为「地板在、箱子没了」。
     ensure 的这几步全部幂等，每次进环都重跑一遍，半成品环因此能自愈。
 

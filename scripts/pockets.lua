@@ -19,28 +19,57 @@ function M.get(player)
     return game.surfaces[M.surface_name(player)]
 end
 
--- 把戴森环从遥控视角的平面列表里藏起来。
+-- 这条环该不该出现在遥控视角左侧的平面列表里。
 --
+-- 判据就是它的公私状态，不是另一套规则：
+--   · private —— 藏起来。列表里能选中就意味着能遥控看、能下拆除令、能放蓝图，
+--     私人环的"私人"二字必须包含这一层，否则传送门禁形同虚设（同 force 全图已探明）。
+--   · public  —— 露出来。公共环的规则本来就是"谁都能进、能拆、能搬空"，
+--     藏着它只是让玩家更难找到，并不提供任何保护，纯属添堵。
+--
+-- 于是这个列表自动变成一份「现在可以去逛的环」清单，和玩法规则始终同步。
+-- storage.ring_hide_private = false 可以整服放开（全部露出），代价是私人环也能被遥控拆。
+--
+-- 隐藏是 per-force 的，没有"只对某个玩家隐藏"的选项。单 force 场景下这不是问题：
+-- 环主自己也用 UI 按钮进出，不需要在列表里翻自己那条。
+local function ring_should_hide(player_name)
+    if storage.ring_hide_private == false then return false end
+    storage.ring_state = storage.ring_state or {}
+    return storage.ring_state[player_name] ~= 'public'
+end
+
 -- 【纯观感功能，绝不允许它中断建环流程】——这不是防御性编程的客套话，是修 bug 修出来的规矩：
 -- 这行曾经写成 set_surface_hidden(true, surface)（参数顺序反了），抛出
 -- InvalidSurfaceIdentification，而它当时【排在 chests.ensure_array 前面】，
 -- 于是被事件总线的 pcall 吞掉之后，12 个收货箱压根没被创建 ——
 -- 玩家看到的现象是「地板在、箱子没了」，从表象上完全联想不到「隐藏 surface」这个功能。
--- 所以现在：① 参数顺序以 runtime-api.json 为准（surface 在前、hidden 在后，已核对）；
--- ② 单独 pcall，失败只写 log；③ 调用点挪到 ensure() 的最后，前面的关键步骤全做完再说。
---
--- 单 force 场景下这个隐藏对整个 force 生效（没有「只对某个玩家隐藏」的选项），
--- 但这恰好可行：所有人（包括环主自己）都靠 UI 按钮传送进出，没人需要在列表里翻它。
-local function hide_surface(surface)
+-- 所以现在：① 参数顺序以 runtime-api.json 为准（surface 在前、hidden 在后，已核对 order 字段）；
+-- ② 单独 pcall，失败只写 log；③ 在 ensure() 里排到最后，前面的关键步骤全做完才轮到它。
+local function sync_visibility(surface, player_name)
+    local hidden = ring_should_hide(player_name)
     local force = game.forces.player
-    local ok, err = pcall(function() force.set_surface_hidden(surface, true) end)
+    local ok, err = pcall(function() force.set_surface_hidden(surface, hidden) end)
     if not ok then
         log('[pw] set_surface_hidden 调用失败（不影响戴森环功能）：' .. tostring(err))
         return
     end
-    if not force.get_surface_hidden(surface) then
-        log('[pw] set_surface_hidden 未生效：' .. surface.name .. ' 仍会出现在遥控视角列表里')
+    if force.get_surface_hidden(surface) ~= hidden then
+        log('[pw] set_surface_hidden 未生效：' .. surface.name)
     end
+end
+
+-- 让平面列表里显示玩家名，而不是内部名 ring_7。
+--
+-- 【改的是 localised_name，不是 name】。surface.name 虽然可写，但它是全服唯一的键：
+-- 一个叫 nauvis 或 ring_3 的玩家就能撞车建不出环，而且本项目所有"这是不是环"的判断
+-- （ring.is_ring_name）和反查主人（ring.owner_name_of）都建立在 ring_<index> 这个格式上，
+-- 改名等于把这套索引连根拔掉。localised_name 是引擎专为此提供的显示层字段：
+-- 文档原话 "will replace the internal surface name in places where a player sees surface name"。
+-- 内部标识稳定，玩家看到的是人名，两边互不干扰。
+--
+-- 放在 ensure() 里每次重设（而不是只在建环时设一次），是为了跟上玩家改名。
+local function sync_label(surface, player)
+    surface.localised_name = player.name
 end
 
 -- 只负责把 surface 本身建出来。箱阵、涂砖、storage 记账都不在这里，
@@ -121,7 +150,9 @@ function M.ensure(player)
     game.forces.player.set_spawn_position(constants.RING_SPAWN, surface)
 
     -- 放在最后：纯观感，前面的关键步骤全部做完才轮到它，它出问题也不会牵连任何人。
-    hide_surface(surface)
+    -- 顺序上必须排在上面 ring_state 兜底之后 —— ring_should_hide 要读它。
+    sync_label(surface, player)
+    sync_visibility(surface, player.name)
 
     if storage.debug then
         for _, p in pairs(game.connected_players) do
@@ -136,7 +167,7 @@ end
 -- 把所有【已存在】的戴森环过一遍 ensure，补齐半成品环缺失的部分（典型是 12 个收货箱）。
 --
 -- 只碰已经存在的环，绝不新建：对已经离线超过删除阈值、环已被回收的玩家调 ensure，
--- 会把那个环凭空造回来，等于绕过 50 小时删除规则。判据就是 M.get(player) 非空。
+-- 会把那个环凭空造回来，等于绕过离线删除规则。判据就是 M.get(player) 非空。
 --
 -- 由 on_configuration_changed（老存档升级）和 /ring-repair 指令调用。
 function M.repair_all()
@@ -163,13 +194,14 @@ function M.enter(player)
 end
 
 -------------------------------------------------------------------------------
--- 离线生命周期：30 小时变公共，50 小时删除
+-- 离线生命周期：离线满一段时间变公共，再满 3 倍时长后删除。
+-- 时长按累计在线时长缩放，下限 3 小时（→ 9 小时删），上限 30 小时（→ 90 小时删）。
 --
 -- 这把「回收」从一个二元开关变成了有中间态的过程，而中间态本身是玩法 ——
 -- 弃厂不是消失，是先变成公共资产：它继续运转、产出汇进全服公共池，任人拆解取用。
 --
 -- 同时修掉了 v1 一个很粗暴的设定（离线半小时回来工厂就没了）：
--- 现在 30 小时才开始有后果，50 小时才真的删，而且删的只是建筑，进度一点不丢。
+-- 现在最少也要离线 3 小时才开始有后果，删除还要再等 3 倍，而且删的只是建筑，进度一点不丢。
 -------------------------------------------------------------------------------
 
 -- 把还留在某 surface 上的访客请回各自的戴森环。
@@ -247,6 +279,9 @@ function M.restore_on_join(player)
     local surface = M.get(player)
     if surface and surface.valid then
         evacuate(surface, player.name)   -- 把还在里面逛的访客请出去
+        -- 收回私有的同时从公开列表里撤下来。只把人请出去而留着列表入口，
+        -- 等于访客关掉传送窗口换成遥控视角，照样能在里面下拆除令。
+        sync_visibility(surface, player.name)
     end
     player.print({'pw.ring-reclaimed'})
 end
@@ -263,20 +298,22 @@ end
 -- 旁的说明，已核实存在），新建角色是 0，靠 ring_min_hours 兜住下限，不会一离线就立刻公共化。
 function M.public_threshold(player)
     local cap_hours = storage.ring_public_hours or 30
-    local min_hours = storage.ring_min_hours or 1
+    local min_hours = storage.ring_min_hours or 3
     local played_hours = (player.online_time or 0) / constants.hour_to_tick
     local hours = math.max(min_hours, math.min(cap_hours, played_hours))
     return hours * constants.hour_to_tick
 end
 
--- 这个玩家的删除阈值（tick）。同 public_threshold，倍数是 2
--- （删除阈值 = min(ring_delete_hours, 2 × 累计在线小时数)）。
+-- 这个玩家的删除阈值（tick）。直接是公共化阈值的固定倍数，不再单独算一遍。
+--
+-- 为什么改成「乘公共化阈值」而不是「自己有一套上限和缩放」：
+-- 两条阈值各算各的时，新人的删除线可能反而比公共线更早到（缩放系数不同），
+-- 于是环还没经历过公共期就直接没了 —— 中间态是本场景的核心玩法，
+-- 不该因为参数取值不当而被跳过。乘出来的版本在数学上永远保证
+-- 删除线 = 倍数 × 公共线 > 公共线，任何参数组合都不可能倒挂。
+-- 默认 3 倍：下限 3 小时 → 9 小时删除，上限 30 小时 → 90 小时删除。
 function M.delete_threshold(player)
-    local cap_hours = storage.ring_delete_hours or 50
-    local min_hours = storage.ring_min_hours or 1
-    local played_hours = (player.online_time or 0) / constants.hour_to_tick
-    local hours = math.max(min_hours, math.min(cap_hours, played_hours * 2))
-    return hours * constants.hour_to_tick
+    return M.public_threshold(player) * (storage.ring_delete_multiple or 3)
 end
 
 -- private → public 跃迁。周期扫描和「访客点进来」两条路都走这里，保证行为一致。
@@ -288,6 +325,10 @@ function M.make_public(player)
 
     storage.ring_state[player.name] = 'public'
     chests.set_array_link(player, constants.PUBLIC_LINK_ID)
+    -- 状态一变，遥控视角列表里立刻多出这条环（顶着主人的名字）。
+    -- 必须在写完 ring_state 之后调，ring_should_hide 读的就是那个字段。
+    local surface = M.get(player)
+    if surface and surface.valid then sync_visibility(surface, player.name) end
     game.print({'pw.ring-public', player.name})
     return true
 end
@@ -300,6 +341,14 @@ function M.tick_lifecycle()
     storage.ring_state = storage.ring_state or {}
 
     for _, player in pairs(game.players) do
+        -- 顺手把显示层重新对一遍。状态跃迁那几处已经各自同步过了，这里是兜底：
+        -- 管理员热改 ring_hide_private、或者手工改过某人的 ring_state 之后，
+        -- 不重进环也能在下一轮扫描时自动对齐，不会留下"状态是公共、列表里却没有"的错位。
+        local surface = M.get(player)
+        if surface and surface.valid then
+            sync_visibility(surface, player.name)
+        end
+
         if not player.connected then
             local idle = game.tick - (player.last_online or 0)
             local state = storage.ring_state[player.name]

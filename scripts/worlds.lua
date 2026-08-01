@@ -50,19 +50,29 @@ end
 -- 建起来、传送带刚接通，世界就没了 —— 建设时间占了整轮的大半，真正产出的时间没多少。
 -- 调大矿脉不是放水，是把「单位时间能挖多少」拉回到和世界寿命匹配的量级。
 --
--- 【遍历 prototypes.autoplace_control 按 category 挑，而不是写死矿物名单】：
--- 五个星球的矿完全不同（钨、方解石、废料、锂……），写死名单必然漏，
--- 而且漏掉的那个星球会安静地保持原版尺寸，没人会发现。
--- category == 'resource' 是引擎自己给的分类，新增 mod 矿也会自动被覆盖到。
--- 地形/悬崖/敌人（terrain/cliff/enemy）不动：那些不是产出，调了只会改变地貌观感。
+-- 【只调这颗星球本来就有的矿，绝不新增条目】——这一条是踩过坑之后写死的规矩。
+--
+-- 曾经的写法是遍历 prototypes.autoplace_control（全局所有矿），按 category == 'resource'
+-- 挑出来，逐个写进 mgs.autoplace_controls。理由当时看着很充分：五个星球的矿完全不同
+-- （钨、方解石、废料、锂……），写死名单必然漏。但那个循环干的其实是两件事：
+-- 「把已有的矿调大」和【「把这颗星球本来没有的矿开出来」】—— 后者纯属误伤。
+-- autoplace_controls 里出现某个矿名，含义是"这颗星球生成这种矿"，不是"如果生成就用这个尺寸"。
+-- 于是废料（Fulgora 专属）被写进了 Nauvis 的设置，Nauvis 就真的长出了废料堆；
+-- 钨、方解石、锂同理。Space Age「每颗星球有独特资源、逼你出门」的整个设计被抹平了。
+--
+-- 现在改成遍历 mgs.autoplace_controls 自己已有的键：星球的资源名单原样保留
+-- （Fulgora 有且只有 scrap，Vulcanus 是钨/方解石/硫酸泉/煤，见游戏本体
+--  data/space-age/prototypes/planet/planet-map-gen.lua），只有尺寸被放大。
+-- 仍然按 category == 'resource' 过滤：这张表里也有地形/悬崖/敌人的控制项
+-- （fulgora_islands、gleba_cliff、vulcanus_volcanism 之类），那些不是产出，
+-- 调了只会改变地貌观感，而把 size 塞给敌人控制项还会真的改变虫子数量。
 local function boost_resources(mgs)
     local boost = storage.world_resource_boost
     if type(boost) ~= 'table' then return end
 
-    mgs.autoplace_controls = mgs.autoplace_controls or {}
-    for name, proto in pairs(prototypes.autoplace_control) do
-        if proto.category == 'resource' then
-            local c = mgs.autoplace_controls[name] or {}
+    for name, c in pairs(mgs.autoplace_controls or {}) do
+        local proto = prototypes.autoplace_control[name]
+        if proto and proto.category == 'resource' then
             c.size = boost.size or c.size
             c.frequency = boost.frequency or c.frequency
             -- richness 不是每种矿都支持（proto.richness 说明它认不认这个字段）。
@@ -187,7 +197,10 @@ function M.reset_world(planet_name)
     storage.world_reset_at = storage.world_reset_at or {}
     storage.world_reset_at[planet_name] = game.tick + M.period_of(planet_name)
 
-    game.print({'pw.world-reset', util.surface_label(planet_name), storage.world_run[planet_name]})
+    -- 播报里不带轮次号。storage.world_run 仍然要维护（它是派生新种子和新地块分布的
+    -- 依据，见 derive_seed / world_terrain），但那是内部计数，对玩家没有任何可操作性：
+    -- 知道这是第 37 轮既不改变他现在该干什么，数字还会一直变大，读起来像是在计时罚站。
+    game.print({'pw.world-reset', util.surface_label(planet_name)})
     return true
 end
 
@@ -251,8 +264,25 @@ function M.can_downgrade(tech)
     return (tech.level or base) > base
 end
 
--- 某科技这次被侵蚀的概率。没有东西可丢的一律返回 0。
-function M.loss_chance(tech)
+-- 这一轮漏水的【强度系数】x：每次判定开一次骰子，整张科技表共用这一个值。
+--
+-- 为什么是「每轮一个 x」而不是「每个科技各掷各的」：
+-- 后者是几百次独立同分布的判定，大数定律会把随机性抹得干干净净 ——
+-- 每轮丢的数量几乎恒定，玩家感觉不到骰子存在，只感觉到一条匀速下滑的线。
+-- 每轮共用一个 x，整表就同起同落：x 接近 0 的那轮几乎什么都不丢，
+-- x 接近上限的那轮成片地掉。总量的期望没变（E[x] = 上限 / 2 = 1，
+-- 正好是旧版那个固定系数），变的只是节奏 —— 从持续渗水变成偶尔一场暴雨。
+--
+-- 上限写成 storage.tech_loss_k_max 而不是字面量 2：这个数字是漏水速度的总闸门，
+-- 调它等于同时调期望值和波动幅度，是最可能需要现场热改的参数。
+function M.roll_coefficient()
+    return math.random() * (storage.tech_loss_k_max or 2)
+end
+
+-- 某科技在系数为 k 的这一轮里被侵蚀的概率。没有东西可丢的一律返回 0。
+-- k 省略时取分布的期望值（上限的一半）——「没给系数」的唯一合理解释是问平均情况，
+-- expected_losses 就是这么用的。
+function M.loss_chance(tech, k)
     local proto = tech.prototype
     -- Trigger 科技永不丢失：它们不是「研究」出来的而是触发出来的，
     -- 撤销后玩家没有合法途径重新拿到。
@@ -271,11 +301,13 @@ function M.loss_chance(tech)
     -- 而且清零几十级的采矿产能在体感上是灭顶之灾，不是持续压力。
     if not (tech.researched or M.can_downgrade(tech)) then return 0 end
 
-    return (storage.tech_loss_k or 1) * M.pack_count(tech) / 100
+    k = k or (storage.tech_loss_k_max or 2) / 2
+    return k * M.pack_count(tech) / 100
 end
 
 -- 全表期望丢失数。纯读取、无副作用 —— GUI 会频繁调它做重置预告，
 -- 报一个「预计丢失约 X 项」比报百分比直观得多。
+-- 不传 k，拿的是长期平均值；单看某一轮的实际丢失数会围着它上下摆很大。
 function M.expected_losses()
     local sum = 0
     for _, tech in pairs(game.forces.player.technologies) do
@@ -294,8 +326,11 @@ end
 -- 自然落到下面那支，行为和以前完全一致。
 function M.roll_tech_loss()
     local lost, downgraded = {}, {}
+    -- 【一轮一个系数】：在循环外面掷，循环里所有科技共用。挪进循环就等于
+    -- 每个科技各掷各的，随机性会被大数定律抹平，见 M.roll_coefficient 的说明。
+    local k = M.roll_coefficient()
     for name, tech in pairs(game.forces.player.technologies) do
-        local chance = M.loss_chance(tech)
+        local chance = M.loss_chance(tech, k)
         if chance > 0 and math.random() < chance then
             -- 播报里用 [technology=名字] 富文本而不是裸科技名：
             -- 裸名是内部标识（'productivity-module-3' 这种），既不跟客户端语言翻译，

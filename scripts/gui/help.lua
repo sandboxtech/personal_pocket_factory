@@ -19,7 +19,9 @@ local M = {}
 
 function M.show(player)
     local inner = popup.open_popup(player, {'pw.help-title'})
-    local label = inner.add{type = 'label', caption = {'pw.help-body'}}
+    -- 投递口个数是玩家最常问、也是管理员最可能调的数字，所以从 storage 现读传进去，
+    -- 不写死在 locale 文本里 —— 改了配置说明会跟着变，不会出现"说明说 1 个、实际能放 12 个"。
+    local label = inner.add{type = 'label', caption = {'pw.help-body', storage.dropoff_limit or 12}}
     label.style.single_line = false
     label.style.maximal_width = popup.WIDTH
 
@@ -29,13 +31,21 @@ function M.show(player)
         extra.style.maximal_width = popup.WIDTH
 
         local minutes = storage.world_reset_minutes or {}
+        local public_hours = storage.ring_public_hours or 30
+        local min_hours = storage.ring_min_hours or 3
         local planets = constants.PUBLIC_PLANETS   -- 顺序：nauvis / vulcanus / gleba / fulgora / aquilo
         local detail = inner.add{type = 'label', caption = {'pw.help-body-detail',
             minutes[planets[1]] or 0, minutes[planets[2]] or 0, minutes[planets[3]] or 0,
             minutes[planets[4]] or 0, minutes[planets[5]] or 0,
-            storage.tech_loss_k or 1,
-            storage.ring_public_hours or 30,
-            storage.ring_delete_hours or 50,
+            storage.tech_loss_k_max or 2,
+            public_hours,
+            -- 删除阈值不再是独立参数，是公共化阈值乘出来的（见 pockets.delete_threshold）。
+            -- 这里跟着乘，而不是再读一个 storage 字段 —— 少一个能和实际规则脱节的地方。
+            public_hours * (storage.ring_delete_multiple or 3),
+            -- 新人的下限。上面两个是老玩家的上限，中间按累计在线时长线性缩放，
+            -- 只报上限会让新人以为自己也有 30 小时可以挥霍，实际只有 3 小时。
+            min_hours,
+            min_hours * (storage.ring_delete_multiple or 3),
         }}
         detail.style.single_line = false
         detail.style.maximal_width = popup.WIDTH

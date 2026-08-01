@@ -74,9 +74,11 @@ M.TUNABLES = {
     {key = 'ring_level_bonus', default = 2, group = 'ring', applies = 'grow'},
     {key = 'ring_pond_half', default = 3, group = 'ring', applies = 'repaint'},
     {key = 'ring_public_hours', default = 30, group = 'lifecycle', applies = 'live'},
-    {key = 'ring_delete_hours', default = 50, group = 'lifecycle', applies = 'live'},
-    {key = 'ring_min_hours', default = 1, group = 'lifecycle', applies = 'live'},
+    {key = 'ring_delete_multiple', default = 3, group = 'lifecycle', applies = 'live'},
+    {key = 'ring_min_hours', default = 3, group = 'lifecycle', applies = 'live'},
+    {key = 'ring_hide_private', default = true, group = 'lifecycle', applies = 'live'},
     {key = 'public_size', default = 2048, group = 'world', applies = 'reset'},
+    {key = 'dropoff_limit', default = 12, group = 'world', applies = 'live'},
     {key = 'world_reset_offset_minutes', default = 10, group = 'world', applies = 'new'},
     {key = 'ship_life_hours', default = 50, group = 'ship', applies = 'live'},
     {key = 'ship_width_per_level', default = 16, group = 'ship', applies = 'new'},
@@ -90,7 +92,7 @@ M.TUNABLES = {
     {key = 'cycle_phase_minutes', default = 5, group = 'cycle', applies = 'new'},
     {key = 'cycle_base_offset_minutes', default = 2, group = 'cycle', applies = 'new'},
     {key = 'hud_refresh_ticks', default = 3600, group = 'cycle', applies = 'live'},
-    {key = 'tech_loss_k', default = 1, group = 'tech', applies = 'live'},
+    {key = 'tech_loss_k_max', default = 2, group = 'tech', applies = 'live'},
     {key = 'detail_hours', default = 6, group = 'misc', applies = 'live'},
     {key = 'block_blueprint_library', default = false, group = 'misc', applies = 'dead'},
     {key = 'debug', default = false, group = 'misc', applies = 'live'},
@@ -104,6 +106,10 @@ M.TUNABLE_TABLES = {
      example = '/sc storage.world_resource_boost.size = 6'},
     {key = 'world_reset_minutes', group = 'world', example = '/sc storage.world_reset_minutes.nauvis = 30', applies = 'live'},
     {key = 'quality_exp', group = 'misc', example = '/sc storage.quality_exp.legendary = 12', applies = 'live'},
+    -- 整张表一次性替换，不是改某一项：起手清单是「一份礼包」，逐项增删的写法
+    -- （storage.starter_items[5] = ...）要求管理员先知道当前有几项，还容易在数组中间留空洞。
+    {key = 'starter_items', group = 'misc', applies = 'new',
+     example = "/sc storage.starter_items = {{name='iron-plate',count=500},{name='wood',count=100}}"},
     {key = 'ring_tiles', group = 'ring', example = '/sc storage.ring_tiles.grown = \'refined-concrete\'', applies = 'repaint'},
     {key = 'world_patch_tiles', group = 'world', applies = 'reset',
      example = '/sc storage.world_patch_tiles.nauvis = {\'grass-1\',\'sand-1\'}'},
@@ -214,6 +220,21 @@ function M.ensure_defaults()
     storage.ring_state = storage.ring_state or {}                  -- [玩家名] = 'private' / 'public'
     -- 新人的阈值按累计在线时长缩放（见 pockets.public_threshold / delete_threshold），
     -- 缩放结果不低于这个下限——避免 online_time = 0 的全新玩家一离线就立刻公共化。
+
+    -- ══ 新玩家的起手物资 ══
+    -- 戴森环里一颗矿都没有，不给起手物资，新人连第一台熔炉都造不出来，
+    -- 更别提"造个木箱当投递口出门采矿"这条主循环的第一步。
+    --
+    -- 做成 storage 表而不是写死在 players.lua 里，是为了让管理员能按服务器的节奏调整：
+    -- 想开快节奏就多给，想开硬核就清空（storage.starter_items = {}）。
+    -- 数组顺序 = 发放顺序，无所谓；名字写错的项会被 grant_starter 静默跳过
+    -- （用 prototypes.item 现查），不会因为一个错别字就让新玩家进不来。
+    storage.starter_items = storage.starter_items or {
+        {name = 'iron-plate', count = 500},
+        {name = 'copper-plate', count = 200},
+        {name = 'stone', count = 100},
+        {name = 'wood', count = 100},
+    }
 
     -- ══ 公共世界 ══
     -- 每星球各自的重置周期（分钟）。周期长短即难度分层：

@@ -95,18 +95,19 @@ local function assign_group(player)
     if group then group.add_player(player) end
 end
 
--- 新玩家的起手物资。口袋世界没有资源，不给起手就真的寸步难行。
-local STARTER_ITEMS = {
-    {name = 'iron-plate', count = 500},
-    {name = 'copper-plate', count = 200},
-    {name = 'stone', count = 100},
-    {name = 'wood', count = 100},
-}
-
+-- 新玩家的起手物资。戴森环里一颗矿都没有，不给起手就真的寸步难行。
+--
+-- 清单在 storage.starter_items（默认值和改法见 constants.ensure_defaults），
+-- 不写死在这里 —— 管理员可以按服务器节奏加减，改完对之后进来的新玩家立刻生效。
+--
+-- 逐项现查 prototypes.item：名字打错的那一项被跳过，其余照发。
+-- 直接 insert 一个不存在的物品名会抛错，而这个函数跑在 on_player_created 里 ——
+-- 抛错就意味着新玩家卡在进场流程中间（权限组已设、环已建、体力和 HUD 都还没来），
+-- 为一个配置错别字付出这个代价太贵了。
 local function grant_starter(player)
-    for _, item in ipairs(STARTER_ITEMS) do
-        if prototypes.item[item.name] then
-            player.insert(item)
+    for _, item in ipairs(storage.starter_items or {}) do
+        if item.name and prototypes.item[item.name] then
+            player.insert{name = item.name, count = item.count or 1}
         end
     end
 end
