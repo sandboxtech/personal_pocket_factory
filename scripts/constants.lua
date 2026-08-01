@@ -89,7 +89,8 @@ M.TUNABLES = {
     {key = 'ring_hide_private', default = true, group = 'lifecycle', applies = 'live'},
     {key = 'public_size', default = 2048, group = 'world', applies = 'reset'},
     {key = 'dropoff_limit', default = 12, group = 'world', applies = 'live'},
-    {key = 'world_patch_blend', default = 0.8, group = 'world', applies = 'reset'},
+    {key = 'world_climate_swing', default = 0.35, group = 'world', applies = 'reset'},
+    {key = 'world_terrain_scale', default = 0.5, group = 'world', applies = 'reset'},
     {key = 'world_reset_offset_minutes', default = 10, group = 'world', applies = 'new'},
     {key = 'ship_life_hours', default = 50, group = 'ship', applies = 'live'},
     {key = 'ship_width_per_level', default = 16, group = 'ship', applies = 'new'},
@@ -127,8 +128,6 @@ M.TUNABLE_TABLES = {
     {key = 'starter_equipment', group = 'misc', applies = 'live',
      example = "/sc storage.starter_equipment = {{name='modular-armor',count=1},{name='solar-panel-equipment',count=6}}"},
     {key = 'ring_tiles', group = 'ring', example = '/sc storage.ring_tiles.grown = \'refined-concrete\'', applies = 'repaint'},
-    {key = 'world_patch_tiles', group = 'world', applies = 'reset',
-     example = '/sc storage.world_patch_tiles.nauvis = {\'grass-1\',\'sand-1\'}'},
 }
 
 -- 戴森环的地图生成设置。
@@ -265,10 +264,16 @@ function M.ensure_defaults()
     -- 【顺序有意义】：带 equipment_grid 的装甲要排在前面，
     -- grant_equipment 先把第一件这样的装甲穿上，再把后面的模块插进它的装备栏。
     -- 反过来写的话，插模块时装备栏还不存在，模块会全部退回背包。
+    --
+    -- 【清单里可以混进普通物品，不必都是装备】：construction-robot 不在
+    -- prototypes.equipment 里，equip_or_insert 的那道判据认得出来，会直接塞进背包。
+    -- 这正是个人机器人指令模块要的：它从【背包】里取建造机器人放飞，
+    -- 只给模块不给机器人的话，指令模块装上了也一动不动。
     storage.starter_equipment = storage.starter_equipment or {
         {name = 'modular-armor', count = 1},
         {name = 'personal-roboport-equipment', count = 1},
         {name = 'solar-panel-equipment', count = 6},
+        {name = 'construction-robot', count = 10},
     }
     -- [玩家名] = 上次领取的 tick。复活时的冷却判定读它，见 players.maybe_grant_equipment。
     storage.starter_equipment_at = storage.starter_equipment_at or {}
@@ -300,60 +305,6 @@ function M.ensure_defaults()
     -- 相邻星球的首次排期错开这么多分钟，避免两个世界同时重置。
     storage.world_reset_at = storage.world_reset_at or {}
     storage.world_run = storage.world_run or {}
-
-    -- ══ 公共世界地貌斑块 ══
-    -- 每个星球一组「可用于斑块替换」的原生地块名，供 scripts/world_terrain.lua 在
-    -- on_chunk_generated 时用噪声在同组砖之间重新分布，让每轮重置后的地貌看起来不一样
-    -- （这轮草多沙少、下轮反过来），而不是无中生有地造出原版没有的新地貌。
-    --
-    -- 选取原则（严格核实过，见 task-31-report.md 逐条对照）：
-    --   1. 必须是该星球【原生】的地块原型名（本机 data/base 或 data/space-age 的
-    --      prototypes/tile 下真实存在，逐个用 grep 核对过 collision_mask）。
-    --   2. 只挑 collision_mask = tile_collision_masks.ground() 的普通地面砖——
-    --      不挑水/熔岩/氨海之类（ground() 之外的 mask，走进去要么淹死要么烧死）、
-    --      不挑人造建筑砖（比如 Fulgora 的 fulgoran-paving/walls/conduit/machinery，
-    --      那是废墟遗迹的一部分，混进"自然斑块"里会很违和）。
-    --   3. 每星球至少两种，斑块替换才有意义；核实不到足够安全砖名的星球留空表，
-    --      world_terrain.lua 会跳过（不瞎猜砖名，写错会在 set_tiles 时报错炸服）。
-    storage.world_patch_tiles = storage.world_patch_tiles or {
-        -- Nauvis：草/泥/沙/红土，data/base/prototypes/tile/tiles.lua 第 1229~1855 行。
-        nauvis = {
-            'grass-1', 'grass-2', 'grass-3', 'grass-4',
-            'dirt-1', 'dirt-2', 'dirt-3', 'dirt-4', 'dirt-5', 'dirt-6', 'dirt-7', 'dry-dirt',
-            'sand-1', 'sand-2', 'sand-3',
-            'red-desert-0', 'red-desert-1', 'red-desert-2', 'red-desert-3',
-        },
-        -- Vulcanus：火山灰/岩/褶皱地表，data/space-age/prototypes/tile/tiles-vulcanus.lua。
-        -- 明确排除 lava / lava-hot / lava-2（collision_mask = lava()，走进去会死）。
-        vulcanus = {
-            'volcanic-ash-light', 'volcanic-ash-dark', 'volcanic-ash-flats',
-            'volcanic-pumice-stones', 'volcanic-smooth-stone', 'volcanic-smooth-stone-warm',
-            'volcanic-ash-cracks', 'volcanic-folds-flat', 'volcanic-folds', 'volcanic-folds-warm',
-            'volcanic-soil-dark', 'volcanic-soil-light', 'volcanic-ash-soil',
-            'volcanic-jagged-ground', 'volcanic-cracks-hot', 'volcanic-cracks-warm', 'volcanic-cracks',
-        },
-        -- Fulgora：废土沙尘/丘/岩，data/space-age/prototypes/tile/tiles-fulgora.lua 第 185~330 行。
-        -- 明确排除 fulgoran-paving/walls/conduit/machinery（人造遗迹砖，不是自然地貌）
-        -- 和 oil-ocean-shallow/deep（油海，collision_mask 是水系）。
-        fulgora = {
-            'fulgoran-dust', 'fulgoran-dunes', 'fulgoran-sand', 'fulgoran-rock',
-        },
-        -- Gleba：自然有机土 + 高地岩石，data/space-age/prototypes/tile/tiles-gleba.lua。
-        -- 明确排除 wetland-*/gleba-deep-lake（collision_mask 是水系）、
-        -- artificial-*-soil/overgrowth-*-soil（那是"农田"语义，不是原生荒野地貌）、
-        -- lowland-*（layer_group = water-overlay，和湿地水面渲染强耦合，脱离水面语境替换会有视觉瑕疵）。
-        gleba = {
-            'natural-yumako-soil', 'natural-jellynut-soil',
-            'highland-dark-rock', 'highland-dark-rock-2', 'highland-yellow-rock', 'pit-rock',
-        },
-        -- Aquilo：雪原/冻土，data/space-age/prototypes/tile/tiles-aquilo.lua 第 252~479 行。
-        -- 明确排除 ice-rough/ice-smooth/ice-platform（collision_mask = meltable_tile，会融化改变碰撞）
-        -- 和 brash-ice/ammoniacal-ocean（水系）。
-        aquilo = {
-            'snow-flat', 'snow-crests', 'snow-lumpy', 'snow-patchy',
-            'dust-flat', 'dust-crests', 'dust-lumpy', 'dust-patchy',
-        },
-    }
 
     -- ══ 飞船（太空平台） ══
     -- 全服公有、每人最多一艘、以主人的名字命名、寿命有限。
@@ -422,7 +373,7 @@ end
 -- 有几个标量参数当前值和默认值不同 —— 给 /pw-reset-config 的预览用，
 -- 让管理员在打 confirm 之前知道「这一下会改掉多少东西」。
 -- 表类型不比较：深比较要写一套递归、还要处理数组顺序，而它给出的信息
--- （"world_patch_tiles 被人动过"）并不值这个复杂度。
+-- （"starter_items 被人动过"）并不值这个复杂度。
 -- 可调参数总数（标量 + 表）。/pw-reset-config 的预览用。
 function M.tunable_count()
     return #M.TUNABLES + #M.TUNABLE_TABLES

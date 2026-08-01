@@ -21,6 +21,9 @@ local constants = require('scripts.constants')
 local pockets = require('scripts.pockets')
 -- util 只依赖 constants 和 ring，两者都不反向依赖 worlds，顶层 require 不成环。
 local util = require('scripts.util')
+-- noise 是纯函数模块（不 require 任何东西、不碰 storage/game），只用它的 hash01
+-- 从种子确定性地派生本轮气候偏置。不成环。
+local noise = require('scripts.noise')
 
 local M = {}
 
@@ -107,6 +110,52 @@ local function reset_to_prototype(surface)
     end
 end
 
+-- 每轮换一套气候，让「这轮草原、下轮沙漠」由【引擎在生成区块时】算出来。
+--
+-- 【这一段取代了旧的脚本重涂地块方案】。旧方案的做法是：等引擎原生生成完，再挂
+-- on_chunk_generated 用自己的噪声场把地块名整片改写一遍。它有三个绕不过去的问题：
+--   1. 量化是阶跃函数，两种砖的分界恰好落在噪声等值线上 —— 整颗星球像一张等高线图；
+--   2. 改写只换砖名，引擎在生成阶段算好的装饰物、悬崖、树种分布仍然对应【原来】的地块，
+--      于是草地上长着沙漠的装饰物；
+--   3. 名单同时充当"哪些格子有资格被换"的筛选集，想减少色带就必然缩小筛选集。
+-- 引擎自己在生成阶段就有这个旋钮，用它一个数就够，上面三个问题一个都不存在。
+--
+-- 只对 Nauvis 生效：aux/moisture 这两个气候变量是 Nauvis 专有的
+-- （base/prototypes/planet/planet-map-gen.lua 第 6~7 行的 aux_climate_control /
+-- moisture_climate_control）。其余四星的地表走各自的专用表达式，压根不读这两个变量。
+-- 它们仍然每轮换种子，地图照样是全新的，只是没有"整体偏干/偏湿"这一维。
+local function randomize_climate(mgs, planet_name, seed)
+    if planet_name ~= 'nauvis' then return end
+
+    mgs.property_expression_names = mgs.property_expression_names or {}
+
+    -- 地貌块大小。引擎里 nauvis_segmentation_multiplier = 1.5 * control:water:frequency
+    -- （core/prototypes/noise-programs.lua 第 361 行），调小 → 每片地貌铺得更大。
+    -- 【副作用是引擎自带的、拆不开的】：这个变量同时是水的 frequency，调小意味着
+    -- 湖泊更少更大。写下来是因为它看起来像"只调地貌大小"，实际不是。
+    local scale = storage.world_terrain_scale
+    if scale and scale > 0 then
+        mgs.property_expression_names['control:water:frequency'] = tostring(scale)
+    end
+
+    local swing = storage.world_climate_swing or 0.35
+    if swing <= 0 then return end
+    -- moisture = clamp(0.5 + control:moisture:bias + 噪声, 0, 1)
+    -- aux      = clamp(0.5 + control:aux:bias      + 噪声, 0, 1)
+    -- （core/prototypes/noise-programs.lua 第 67 / 115 行）
+    -- 偏置平移的是整颗星球的干湿倾向和红土/沙倾向，噪声本身不动 ——
+    -- 所以地貌纹理还是原版那套，只是这一轮整体偏到了光谱的某一端。
+    --
+    -- 值写成字符串：property_expression_names 的值是【表达式名或字面量】，两者都用字符串
+    -- 表达（本项目 constants.ring_map_gen 里的 elevation = '50' 是同一种用法的实证）。
+    -- hash01 从种子确定性派生，同一轮永远得到同一套气候，多人和回滚重放都不会分叉。
+    local function bias(salt)
+        return tostring((noise.hash01(seed * salt) * 2 - 1) * swing)
+    end
+    mgs.property_expression_names['control:moisture:bias'] = bias(1.7)
+    mgs.property_expression_names['control:aux:bias'] = bias(3.1)
+end
+
 function M.apply_bounds(surface, seed)
     local size = storage.public_size or 2048
     reset_to_prototype(surface)
@@ -115,7 +164,23 @@ function M.apply_bounds(surface, seed)
     mgs.height = size
     if seed then mgs.seed = seed end
     boost_resources(mgs)
-    surface.map_gen_settings = mgs
+
+    -- 气候覆写单独试一次，失败了退回到"只有边界和矿脉"的设置重新写。
+    -- 【为什么值得这么小心】：property_expression_names 的键是引擎内部的表达式名，
+    -- 写错一个字符，整条赋值就抛错 —— 而这条赋值是世界重置流程的必经之路，
+    -- 炸在这里等于整颗星球再也重置不了。边界和矿脉是刚需，气候只是好看，
+    -- 所以宁可丢掉气候也要把刚需写进去。
+    local plain = surface.map_gen_settings
+    plain.width, plain.height = size, size
+    if seed then plain.seed = seed end
+    boost_resources(plain)
+
+    randomize_climate(mgs, surface.name, seed or mgs.seed or 0)
+    local ok, err = pcall(function() surface.map_gen_settings = mgs end)
+    if not ok then
+        log('[pw] 气候覆写失败，本轮沿用原生气候：' .. tostring(err))
+        surface.map_gen_settings = plain
+    end
 end
 
 -- 由星球名和轮次确定性地派生一颗种子。

@@ -144,7 +144,6 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | `scripts/geometry.lua` | 纯函数模块：环等级、半宽、tile 语义计算，戴森环形状的唯一真相源，可脱离游戏跑单测。 |
 | `scripts/ring.lua` | 戴森环涂砖与扩容：把 geometry 算出的语义值查表换成真实砖名，`on_chunk_generated` 的订阅入口，升级时逐区块行重涂新增竖带。 |
 | `scripts/bootstrap.lua` | 初始化/修复的那一套幂等步骤，`on_init`、`on_configuration_changed`、`/pw-repair` 三个调用方共用。 |
-| `scripts/palette.lua` | 噪声值 → 调色板下标，量化前先按色带宽度抖动。纯函数，边界抖不开就是整颗星球的等高线感。 |
 | `scripts/expio.lua` | 玩家进度（经验 + 体力）的导出与导入。导出走 `helpers.write_file`，导入只能靠加载阶段 `pcall(require, 'exp_import')`——引擎没有运行时读文件的 API。 |
 | `scripts/chests.lua` | 关联箱：木箱↔关联箱转化、三道防偷锁、12 箱阵创建与 link_id 切换、投递口名额（先进先出）。 |
 | `scripts/exp.lua` | 12 种经验记账 + 兑换：背包手动兑换与收货箱周期自动兑换共用同一套预览/结算逻辑。 |
@@ -182,13 +181,12 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | `ring_tiles` | 语义砖名（start/grown/space/void）→ 真实砖原型名 | 见 `constants.lua` |
 | `ring_public_hours` / `ring_delete_multiple` / `ring_min_hours` | 离线多久变公共（老玩家上限）/ 删除阈值是它的几倍 / 缩放后的下限 | 30 / 3 / 3 |
 | `ring_hide_private` | 私人环是否从遥控视角平面列表隐藏（公共环一律显示） | true |
-| `world_patch_blend` | 地貌斑块边界的抖动强度（单位：色带宽度），0 = 硬边界 | 0.8 |
+| `world_climate_swing` / `world_terrain_scale` | 每轮气候摆幅 / 地貌块大小，都写进引擎的 `property_expression_names`，仅 Nauvis 有效 | 0.35 / 0.5 |
 | `public_size` / `dropoff_limit` | 公共世界边长（tile）/ 每人同时能放几个投递口（全宇宙合计） | 2048 / 12 |
 | `world_reset_minutes` | 各星球重置周期（table，按星球名索引；必须都是 60 的整数倍，错峰证明依赖这一点） | nauvis 120 / vulcanus 180 / fulgora 240 / gleba 300 / aquilo 360 |
 | `world_reset_offset_minutes` | 相邻星球首次排期的错开分钟数 | 10 |
-| `world_patch_tiles` | 各星球地貌斑块候选砖名单 | 见 `constants.lua` |
 | `starter_items` | 新玩家起手物资，整张表替换；未知物品名跳过 | 铁板 500 / 铜板 200 / 石 100 / 木 100 |
-| `starter_equipment` / `starter_equipment_hours` | 起始装备清单（带装备栏的装甲排在前面）/ 复活补发的冷却小时数 | 模块装甲 + 机器人指令模块 + 6 太阳能板 / 3 |
+| `starter_equipment` / `starter_equipment_hours` | 起始装备清单（带装备栏的装甲排在前面）/ 复活补发的冷却小时数 | 模块装甲 + 机器人指令模块 + 6 太阳能板 + 10 建造机器人 / 3 |
 | `cycle_minutes` / `cycle_phase_minutes` / `cycle_base_offset_minutes` | 相位调度器：大类任务周期 / 相位间隔 / 与星球重置错开的基础偏移 | 60 / 5 / 2 |
 | `tech_loss_k_max` | 漏水系数上限，每轮取 `x ~ U(0, 上限)`，`P = x × 瓶子种数 / 100` | 2 |
 | `block_blueprint_library` | 权限组是否禁蓝图库 | false（默认不禁） |

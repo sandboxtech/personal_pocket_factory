@@ -1,17 +1,23 @@
--- 公共世界的地貌斑块：每轮重置后，五个星球的地面看起来都不一样。
+-- 公共世界的树木疏密：每轮重置后，哪片林子密、哪片秃，跟着本轮种子换。
 --
--- 【本模块严格只碰自然环境】——地块(tile)斑块替换，外加装饰物/树木疏密的顺带调整。
+-- 【本模块严格只碰自然环境】。
 -- 【绝对不放箱子/物资箱/永续箱，也绝对不放虫巢/据点/敌方单位】，原因：
 --   本场景不能往公共世界里放物资箱：玩家用关联箱一趟就能把它们运回戴森环，
 --   而戴森环【不重置】。任何放在公共世界的白给物资，最终都会变成永久收益，
 --   这和「星球会重置、环才是长期平台」的核心节奏直接冲突。
---   （敌方据点同理不放——公共世界的核心定位是"有时限的资源场"，不是战斗关卡，
+--   （敌方据点同理不放 —— 公共世界的核心定位是"有时限的资源场"，不是战斗关卡，
 --   加虫巢只会让玩家在世界到期前多一件要处理的麻烦事，和"重置节奏"这个设计目标无关。）
 --
--- 做法：noise.lua 的 chunk_sampler + fractal_warped 组合——由 worlds.derive_seed() 给出的
--- 本轮种子，确定性地派生一组"本轮专属"的旋转/拉伸/缩放参数，同一套噪声场套上这组参数，
--- 就在【原生地块名单内】重新分布出一张新斑块图。种子来自 storage.world_run[星球名]，
--- 和 worlds.reset_world() 换种子重开地形用的是同一颗种子——地形和地貌斑块同步换新。
+-- 【本模块曾经还负责地块斑块替换，那部分已经整个删掉了】。
+-- 那套做法是等引擎原生生成完，再用自己的噪声场把地块名整片改写一遍。它有三个绕不过去的问题：
+--   1. 量化是阶跃函数，两种砖的分界恰好落在噪声等值线上 —— 整颗星球看起来像一张等高线图；
+--   2. 改写只换砖名，引擎在生成阶段算好的装饰物、悬崖、树种分布仍然对应【原来】的地块，
+--      于是草地上长着沙漠的装饰物、地块和装饰物对不上；
+--   3. 砖名单同时充当"哪些格子有资格被换"的筛选集，想减少色带就必然缩小筛选集，
+--      于是大半张地图根本不会被碰，比不改还花。
+-- 它想达成的目的（每轮地貌观感不同）现在由 worlds.randomize_climate 用【引擎自己的
+-- 气候旋钮】达成：在生成【之前】平移 moisture/aux 偏置，引擎连装饰物带悬崖一起自洽地算出来。
+-- 教训：想改地貌就去改地图生成的输入，不要在输出上打补丁。
 --
 -- 只在【公共世界】的区块上跑：戴森环的 on_chunk_generated 处理器（ring.lua）
 -- 认 surface 名是不是 'ring_' 前缀，本模块认 surface 名是不是五个公共星球之一，
@@ -19,7 +25,6 @@
 local constants = require('scripts.constants')
 local worlds = require('scripts.worlds')
 local noise = require('scripts.noise')
-local palette_index = require('scripts.palette').index
 local events = require('scripts.events')
 
 local M = {}
@@ -28,17 +33,8 @@ local M = {}
 local PUBLIC_SET = {}
 for _, name in ipairs(constants.PUBLIC_PLANETS) do PUBLIC_SET[name] = true end
 
--- 该星球本轮的斑块替换用砖名单。表缺项/空表都返回 nil——调用方据此跳过，
--- 不会把 nil 或空数组传进 find_tiles_filtered/chunk_sampler。
-local function palette_for(planet_name)
-    local t = storage.world_patch_tiles
-    local list = t and t[planet_name]
-    if type(list) ~= 'table' or #list < 2 then return nil end   -- 少于两种砖，换了也换不出花样
-    return list
-end
-
 -- 本轮种子：和 worlds.reset_world() 换地形用的是同一条派生规则、同一个轮次号，
--- 保证「地形重开」和「地貌斑块换新」永远同步——不会出现地形已经是新的、斑块还是上一轮的错位。
+-- 保证「地形重开」和「树木疏密换新」永远同步 —— 不会出现地形已经是新的、疏密还是上一轮的错位。
 local function seed_for(planet_name)
     local run = (storage.world_run and storage.world_run[planet_name]) or 0
     return worlds.derive_seed(planet_name, run), run
@@ -54,49 +50,6 @@ local function transform_for(planet_name, seed, run)
     local angle, stretch, zoom = noise.seeded_transform(seed + 12345)
     xform_cache[planet_name] = {run = run, angle = angle, stretch = stretch, zoom = zoom}
     return angle, stretch, zoom
-end
-
--- 地块斑块替换：只在【本星球原生砖名单内】的格子上找目标，命中噪声高值区就换成名单里的另一种砖。
--- find_tiles_filtered 的 name 参数直接传整张名单——只会命中名单内的砖，水/熔岩/人造建筑砖
--- 从一开始就不在候选范围内，不存在"不小心把海面换成沙地"这种事。
-function M.patch_tiles(surface, planet_name, area, seed, angle, stretch, zoom)
-    local palette = palette_for(planet_name)
-    if not palette then return end
-
-    local found = surface.find_tiles_filtered{area = area, name = palette}
-    if #found == 0 then return end
-
-    local n = #palette
-    local sampler = noise.chunk_sampler(noise.octaves.blob, area.left_top, seed, angle, stretch, zoom)
-    -- 第二张【高频】噪声场，专门用来把色带边界抖开。种子加 900 是为了和主噪声、
-    -- 和 thin_trees 用的那张（+500）都错开，否则抖动会和斑块本身相关，
-    -- 边界仍然是一条（只是变形了的）确定曲线，抖不散。
-    local dither = noise.chunk_sampler(noise.octaves.fine, area.left_top, seed + 900, angle, stretch, zoom)
-    local blend = storage.world_patch_blend or 0.8
-
-    local tiles = {}
-    for _, t in pairs(found) do
-        local p = t.position
-        -- 量化前先加抖动：直接量化会让两种砖的分界落在一条等值线上，锋利如刀。
-        -- 具体理由和单位换算见 scripts/palette.lua。
-        local idx = palette_index(sampler(p.x, p.y), n, dither(p.x, p.y), blend)
-        local target = palette[idx]
-        if target ~= t.name then
-            tiles[#tiles + 1] = {name = target, position = p}
-        end
-    end
-    -- 批量一次提交。
-    --
-    -- correct_tiles【必须是 true】（也是引擎的默认值，这里显式写出来是因为它曾经被设成 false）：
-    -- 这个开关管的是"改完之后重新计算受影响格子及其邻居的过渡处理"。关掉它，
-    -- 我们逐区块换砖之后邻居的过渡信息不会更新，边界就会硬邦邦地怼在一起。
-    -- 当初关掉它的理由是"名单里都是同星球原生砖，视觉上本来就互相兼容"——
-    -- 那句话把"砖的色调兼容"和"引擎需不需要处理过渡"混为一谈了，是错的。
-    --
-    -- remove_colliding_entities=false 保留：绝不因为换地块删掉任何实体。
-    if #tiles > 0 then
-        surface.set_tiles(tiles, true, false)
-    end
 end
 
 -- 顺带调整树木疏密：本轮噪声落在"荒芜带"的树，按概率清掉，让这轮某片区域看起来比上轮秃一些。
@@ -128,7 +81,6 @@ function M.on_chunk_generated(event)
     local seed, run = seed_for(surface.name)
     local angle, stretch, zoom = transform_for(surface.name, seed, run)
 
-    M.patch_tiles(surface, surface.name, event.area, seed, angle, stretch, zoom)
     M.thin_trees(surface, event.area, seed, angle, stretch, zoom)
 end
 
