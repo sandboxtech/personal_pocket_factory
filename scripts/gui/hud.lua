@@ -82,11 +82,18 @@ function M.refresh(player)
     end
     root.clear()
     root.style.padding = 4
-    root.style.vertical_spacing = 4
 
-    build_travel_bar(root)
+    -- 两行装进一个竖向 flow，行间距设在【flow】上而不是外层 frame 上。
+    -- vertical_spacing / horizontal_spacing 是 Table/Flow/VerticalFlow 样式独有的属性，
+    -- 赋给 frame 会直接抛 "Expected Table or Flow Or VerticalFlow but was Frame"。
+    -- 这类错误 luac 和静态检查都看不见：属性名拼写正确、类型也对，
+    -- 只是这个属性不存在于这一类样式上，非得渲染到那一行才炸。
+    local content = root.add{type = 'flow', name = 'pw_hud_content', direction = 'vertical'}
+    content.style.vertical_spacing = 4
 
-    local row = root.add{type = 'flow', name = 'pw_hud_main_row', direction = 'horizontal'}
+    build_travel_bar(content)
+
+    local row = content.add{type = 'flow', name = 'pw_hud_main_row', direction = 'horizontal'}
     row.style.vertical_align = 'center'
     row.style.horizontal_spacing = 8
 
