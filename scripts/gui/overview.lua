@@ -20,6 +20,14 @@ local popup = require('scripts.gui.popup')
 
 local M = {}
 
+-- 拆船确认的有效期。短到玩家不会在别的操作之后误点到一个还举着的按钮，
+-- 长到足够看清按钮文字变了再点第二下。
+--
+-- 【必须声明在 render_my_ship 之前】：Lua 的 local 只对声明之后的代码可见，
+-- 写在后面的话函数里读到的是同名全局（nil），要等真的点开窗口才炸。
+-- tests/check_globals.sh 就是查这个的。
+local SCUTTLE_WINDOW_TICKS = 60 * 10
+
 -- 把环列表、船列表按主人对齐成一张表，顺带把无主飞船单独拣出来。
 -- 返回 rows（每项 {player, ring, ship}）和 unowned（无主飞船数组）。
 local function build_rows()
@@ -76,6 +84,20 @@ local function render_my_ship(container, player)
             board_btn.tooltip = {'pw.overview-ship-not-ready'}
             head.add{type = 'label', caption = {'pw.overview-my-ship-waiting', platform.name}}
         end
+
+        -- 拆船：两步确认。第一次点只是"举起"，第二次点才真拆。
+        --
+        -- 单步就拆太危险：船上所有东西跟着一起没，而且不可撤销。
+        -- 但也不想为此开一个模态确认框——本页已经是个弹窗，再叠一层弹窗更难用。
+        -- 折中是让按钮自己变成确认态，有效期很短（storage.ship_scuttle_armed 记时刻），
+        -- 过期自动作废，玩家不会在几分钟后误点到一个还举着的按钮。
+        storage.ship_scuttle_armed = storage.ship_scuttle_armed or {}
+        local armed_at = storage.ship_scuttle_armed[player.name]
+        local armed = armed_at and (game.tick - armed_at) < SCUTTLE_WINDOW_TICKS
+
+        local scuttle = head.add{type = 'button', name = 'pw_ov_scuttle',
+                                 caption = {armed and 'pw.overview-scuttle-confirm' or 'pw.overview-scuttle'}}
+        scuttle.tooltip = {armed and 'pw.overview-scuttle-confirm-tip' or 'pw.overview-scuttle-tip'}
     else
         head.add{type = 'button', name = 'pw_ov_build', caption = {'pw.overview-build-ship'},
                  tooltip = {'pw.overview-build-ship-tip'}}
@@ -290,6 +312,23 @@ function M.on_click(player, name)
             player.print({err or 'pw.ship-create-failed'})
         end
         M.show(player)   -- 无论成败都重开，玩家立刻看到最新状态
+        return true
+    end
+
+    if name == 'pw_ov_scuttle' then
+        storage.ship_scuttle_armed = storage.ship_scuttle_armed or {}
+        local armed_at = storage.ship_scuttle_armed[player.name]
+        if armed_at and (game.tick - armed_at) < SCUTTLE_WINDOW_TICKS then
+            storage.ship_scuttle_armed[player.name] = nil
+            -- 拆的永远是【调用者自己】名下那艘：ships.scuttle 只收一个 player 参数，
+            -- 没有"按 index 拆"的入口，越权在签名层面就不成立。
+            if not ships.scuttle(player) then
+                player.print({'pw.overview-ship-gone'})
+            end
+        else
+            storage.ship_scuttle_armed[player.name] = game.tick
+        end
+        M.show(player)
         return true
     end
 

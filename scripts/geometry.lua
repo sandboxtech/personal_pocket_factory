@@ -85,9 +85,26 @@ end
 -- 纵向同理。左闭右开，和 Factorio 的 tile 语义一致。
 --
 -- 判断顺序有意义：横向的墙优先于纵向的分带。环外就是环外，不管 y 落在哪一段。
-function M.tile_at(x, y, half_width, ring_height, concrete_height, base_half_width)
+function M.tile_at(x, y, half_width, ring_height, concrete_height, base_half_width, pond_half)
     if x < -half_width or x >= half_width then
         return 'void'
+    end
+
+    -- 环心的一小片浅水（'water'），半径 pond_half，不传或传 0 就没有水池。
+    --
+    -- 【它解决的是开局死锁，不是取水麻烦】：原版第一套电力是锅炉 + 蒸汽机，要水。
+    -- 环里没有水的话，玩家造不出电；造不出电就点不亮实验室；点不亮实验室就研究不出
+    -- 太阳能板 —— 于是连第一个红瓶都出不来，整局卡死在起点。
+    -- 给水不破坏「环里没有资源」这条核心约束：一颗矿还是没有，水只是公共设施。
+    --
+    -- 判定【必须排在 start/grown 之前】：那两者覆盖整条中间可建带，写在后面就永远轮不到水池。
+    -- 用浅水（映射见 storage.ring_tiles.water）而不是深水：浅水的碰撞掩码里没有 player 层，
+    -- 角色能直接趟过去，不会把环心切成互不相通的两半；同时它有 water_tile 层，
+    -- 满足海洋泵 tile_buildability_rules 里「泵前方两格必须是水」那一条。
+    if pond_half and pond_half > 0
+            and x >= -pond_half and x < pond_half
+            and y >= -pond_half and y < pond_half then
+        return 'water'
     end
 
     local concrete_half = concrete_height / 2

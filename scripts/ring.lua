@@ -82,6 +82,7 @@ function M.paint_area(surface, x_from, x_to, y_from, y_to, half_width)
     local ring_height = storage.ring_height or 128
     local concrete_height = storage.ring_concrete_height or 64
     local base_half_width = storage.ring_base_half_width or 32
+    local pond_half = storage.ring_pond_half or 3
     -- geometry.lua 只返回语义值（'start'/'grown'/'space'/'void'），
     -- 真正的砖原型名查这张表。取不到时兜底成墙，绝不把 nil 塞进 set_tiles。
     local ring_tiles = storage.ring_tiles or {}
@@ -89,7 +90,7 @@ function M.paint_area(surface, x_from, x_to, y_from, y_to, half_width)
     local tiles = {}
     for x = x_from, x_to - 1 do
         for y = y_from, y_to - 1 do
-            local semantic = geometry.tile_at(x, y, half_width, ring_height, concrete_height, base_half_width)
+            local semantic = geometry.tile_at(x, y, half_width, ring_height, concrete_height, base_half_width, pond_half)
             tiles[#tiles + 1] = {
                 name = ring_tiles[semantic] or 'out-of-map',
                 position = {x, y},

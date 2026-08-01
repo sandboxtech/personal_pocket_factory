@@ -180,6 +180,26 @@ events.on(defines.events.on_surface_created, function(event)
     on_platform_surface(game.surfaces[event.surface_index])
 end)
 
+-- 玩家主动拆掉【自己的】船。返回 true 表示拆了。
+--
+-- 【只能拆自己的，而且没有管理员批量版本】。飞船是全服公有的（谁都能登船、谁都能用），
+-- 但"拆"这件事只有船主能做 —— 一个人能拆别人的船，等于一个人能把别人囤在船上的东西
+-- 连船一起清空，那比偷关联箱严重得多，而且不可撤销。
+-- 所以这个函数【只接受一个 player 参数，拆的永远是他名下那艘】，
+-- 不提供"按 index 拆"的入口，从签名上就不给越权留位置。
+--
+-- 为什么需要主动拆：每人同时只能有一艘，想换个环绕星球、或者上一艘卡在
+-- 等起步包的状态回不来了，除了等 50 小时到期就没别的出路。
+function M.scuttle(player)
+    local platform, record = M.of(player)
+    if not platform then return false end
+    local index = platform.index
+    platform.destroy()
+    records()[index] = nil
+    game.print({'pw.ship-scuttled', player.name})
+    return true
+end
+
 -- 所有在册飞船，供 GUI 列出。顺手清掉指向已消失平台的记录。
 -- 每项：{ index, owner（可能是 nil）, platform, left_hours, location（星球名或 nil） }
 function M.all()

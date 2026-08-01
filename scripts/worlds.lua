@@ -43,12 +43,43 @@ end
 -- seed 传了才换。首次建面时不需要换（用星球自带的种子），
 -- 重置时必须换 —— 否则 clear() 会用同一颗种子重新生成【同一张图】，
 -- 「每轮都是新鲜世界」这个前提就垮了。
+-- 把矿脉调大。
+--
+-- 【为什么公共世界的矿必须比原版夸张】：这些星球一两个小时就清空一次。
+-- 原版的矿脉尺寸是按「一局几十小时、慢慢铺开」调的，放在这里就意味着玩家刚把采矿场
+-- 建起来、传送带刚接通，世界就没了 —— 建设时间占了整轮的大半，真正产出的时间没多少。
+-- 调大矿脉不是放水，是把「单位时间能挖多少」拉回到和世界寿命匹配的量级。
+--
+-- 【遍历 prototypes.autoplace_control 按 category 挑，而不是写死矿物名单】：
+-- 五个星球的矿完全不同（钨、方解石、废料、锂……），写死名单必然漏，
+-- 而且漏掉的那个星球会安静地保持原版尺寸，没人会发现。
+-- category == 'resource' 是引擎自己给的分类，新增 mod 矿也会自动被覆盖到。
+-- 地形/悬崖/敌人（terrain/cliff/enemy）不动：那些不是产出，调了只会改变地貌观感。
+local function boost_resources(mgs)
+    local boost = storage.world_resource_boost
+    if type(boost) ~= 'table' then return end
+
+    mgs.autoplace_controls = mgs.autoplace_controls or {}
+    for name, proto in pairs(prototypes.autoplace_control) do
+        if proto.category == 'resource' then
+            local c = mgs.autoplace_controls[name] or {}
+            c.size = boost.size or c.size
+            c.frequency = boost.frequency or c.frequency
+            -- richness 不是每种矿都支持（proto.richness 说明它认不认这个字段）。
+            -- 对不支持的矿硬塞 richness 是无意义的，跳过更干净。
+            if proto.richness then c.richness = boost.richness or c.richness end
+            mgs.autoplace_controls[name] = c
+        end
+    end
+end
+
 function M.apply_bounds(surface, seed)
     local size = storage.public_size or 2048
     local mgs = surface.map_gen_settings
     mgs.width = size
     mgs.height = size
     if seed then mgs.seed = seed end
+    boost_resources(mgs)
     surface.map_gen_settings = mgs
 end
 

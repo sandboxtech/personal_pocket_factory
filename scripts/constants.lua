@@ -72,6 +72,7 @@ M.TUNABLES = {
     {key = 'ring_base_half_width', default = 32, group = 'ring', applies = 'repaint'},
     {key = 'ring_per_level', default = 16, group = 'ring', applies = 'grow'},
     {key = 'ring_level_offset', default = 10, group = 'ring', applies = 'grow'},
+    {key = 'ring_pond_half', default = 3, group = 'ring', applies = 'repaint'},
     {key = 'ring_public_hours', default = 30, group = 'lifecycle', applies = 'live'},
     {key = 'ring_delete_hours', default = 50, group = 'lifecycle', applies = 'live'},
     {key = 'ring_min_hours', default = 1, group = 'lifecycle', applies = 'live'},
@@ -96,6 +97,8 @@ M.TUNABLES = {
 -- 这里只登记「它存在、归哪一组、怎么改」，供 /pw-config 一并列出。
 -- example 是一条能直接粘进控制台的示例——表字段没法像标量那样直接赋一个数字。
 M.TUNABLE_TABLES = {
+    {key = 'world_resource_boost', group = 'world', applies = 'reset',
+     example = '/sc storage.world_resource_boost.size = 6'},
     {key = 'world_reset_minutes', group = 'world', example = '/sc storage.world_reset_minutes.nauvis = 30', applies = 'live'},
     {key = 'quality_exp', group = 'misc', example = '/sc storage.quality_exp.legendary = 12', applies = 'live'},
     {key = 'ring_tiles', group = 'ring', example = '/sc storage.ring_tiles.grown = \'refined-concrete\'', applies = 'repaint'},
@@ -197,6 +200,10 @@ function M.ensure_defaults()
         grown = 'tutorial-grid',   -- 升级长出来的：暂时和初始区域用同一种砖
         space = 'empty-space',     -- 上下临空带
         void  = 'out-of-map',      -- 环外的墙
+        -- 环心水池。用【浅水】而不是深水：浅水的碰撞掩码里没有 player 层，角色能直接趟过去，
+        -- 不会把环心切成互不相通的两半；同时它带 water_tile 层，满足海洋泵
+        -- 「泵前方两格必须是水」那条放置规则。引擎自己的注释写明它 walkable but not buildable。
+        water = 'water-shallow',
     }
 
     -- ══ 戴森环离线生命周期 ══
@@ -214,6 +221,15 @@ function M.ensure_defaults()
     storage.world_reset_minutes = storage.world_reset_minutes or {
         nauvis = 60, vulcanus = 120, fulgora = 180, gleba = 240, aquilo = 300,
     }
+    -- 公共世界的矿脉尺寸倍率。这些星球一两小时就清空一次，原版尺寸是按「一局几十小时」
+    -- 调的，直接用会让建设时间吃掉整轮的大半。数值是 MapGenSize：1 = 原版，2 = 大，
+    -- 4 = 非常大，6 = 界面上的最大档。见 worlds.boost_resources，按 category 覆盖全部矿种。
+    storage.world_resource_boost = storage.world_resource_boost or {
+        size = 6,        -- 矿脉铺开的面积，主要影响「一片矿能撑多久」
+        frequency = 2,   -- 矿脉出现的密度，影响「走多远能碰到下一片」
+        richness = 4,    -- 单格矿量，影响「同样面积能挖出多少」
+    }
+
     -- 相邻星球的首次排期错开这么多分钟，避免两个世界同时重置。
     storage.world_reset_at = storage.world_reset_at or {}
     storage.world_run = storage.world_run or {}

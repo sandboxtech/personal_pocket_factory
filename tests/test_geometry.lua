@@ -124,6 +124,56 @@ check('grown 场景: 新半宽内最后一格',      tg(79, 0), 'grown')
 check('grown 场景: 新半宽外第一格(墙)',    tg(80, 0), 'void')
 check('grown 场景: 临空带仍是 space',      tg(50, 40), 'space')
 
+-- ══ tile_at：环心水池 ══
+-- 出生点一片 6×6 浅水，半径 3（tile x/y 各从 -3 到 2）。
+-- 存在的理由是【开局引导】：原版第一套电力是锅炉 + 蒸汽机，要水；
+-- 环里没水的话玩家造不出电，造不出电就点不亮实验室，点不亮实验室就研究不出太阳能，
+-- 于是连第一个红瓶都出不来。给水不破坏「环里没有资源」——一颗矿还是没有。
+--
+-- 水池判定必须【优先于】start/grown，否则会被中间那条可建带整片盖掉。
+local H, C, B = 128, 64, 32     -- ring_height / concrete_height / base_half_width
+local POND = 3                   -- 水池半径
+
+check('水池中心',        geo.tile_at(0, 0, 64, H, C, B, POND), 'water')
+check('水池左上角',      geo.tile_at(-3, -3, 64, H, C, B, POND), 'water')
+check('水池右下角(闭区间内)', geo.tile_at(2, 2, 64, H, C, B, POND), 'water')
+-- 左闭右开：x = 3 和 y = 3 已经在池子外
+check('水池右边界外',    geo.tile_at(3, 0, 64, H, C, B, POND), 'start')
+check('水池下边界外',    geo.tile_at(0, 3, 64, H, C, B, POND), 'start')
+check('水池左边界外',    geo.tile_at(-4, 0, 64, H, C, B, POND), 'start')
+
+-- 收货箱阵占 tile x = -4 和 x = 3，正好在池子两侧的岸上，绝不能被水淹掉
+check('左列箱位是陆地',  geo.tile_at(-4, -3, 64, H, C, B, POND), 'start')
+check('右列箱位是陆地',  geo.tile_at(3, 2, 64, H, C, B, POND), 'start')
+-- 池子上下也要留出陆地给海洋泵站（泵自身必须站在陆地上，水在它面前）
+check('池上方是陆地',    geo.tile_at(0, -4, 64, H, C, B, POND), 'start')
+check('池下方是陆地',    geo.tile_at(0, 3, 64, H, C, B, POND), 'start')
+
+-- 水池不能越过环的边界，也不能盖掉临空带和墙
+check('环外仍是墙',      geo.tile_at(-100, 0, 64, H, C, B, POND), 'void')
+check('临空带不受影响',  geo.tile_at(0, 40, 64, H, C, B, POND), 'space')
+
+-- 不传 pond_half（或传 0）时行为和加水池之前完全一致，老调用点不受影响
+check('无水池参数时环心是 start', geo.tile_at(0, 0, 64, H, C, B), 'start')
+check('水池半径 0 时环心是 start', geo.tile_at(0, 0, 64, H, C, B, 0), 'start')
+
 -- ══ 汇总 ══
+-- 【自检：有没有断言压根没跑】
+-- 把本文件里 check( 的出现次数数一遍，和实际执行到的 total 对比。
+-- 起因是一段新断言被插到了 os.exit() 后面，成了死代码：测试照常报"全部通过"，
+-- 而那几条根本没执行。测试不跑比没有测试更糟——它会主动汇报一个假的成功。
+local declared = 0
+for line in io.lines('tests/test_geometry.lua') do
+    if line:match('^%s*check%(') then declared = declared + 1 end
+end
+-- 判据是【执行数不少于书写数】而不是相等：循环里的 check 一行会跑很多次
+-- （等价性对照那段一行就跑 73 次），相等永远不成立。少于书写数才说明有断言没跑到。
+if total < declared then
+    print(string.format('FAIL  文件里写了 %d 条断言，实际只跑到 %d 条（有断言不可达？）',
+        declared, total))
+    failures = failures + 1
+end
+
 print(string.format('%d/%d 通过', total - failures, total))
 os.exit(failures == 0 and 0 or 1)
+
