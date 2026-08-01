@@ -33,9 +33,9 @@ local function literal(value)
     return tostring(value)
 end
 
--- 起手物资的当前值，渲染成图标 + 数量。
+-- 物品清单类配置的当前值，渲染成图标 + 数量。
 --
--- 只有这一张表享受「显示当前值」的待遇，是因为它是唯一一张【短、且管理员改它之前
+-- 只有这一类表享受「显示当前值」的待遇，因为它们是仅有的【短、且管理员改它之前
 -- 一定想先看看现在发的是什么】的表配置：其余几张要么长得离谱（world_patch_tiles
 -- 有上百个砖名），要么结构一眼能猜到（world_reset_minutes），给个示例就够了。
 --
@@ -44,8 +44,11 @@ end
 -- 不能让它把这个窗口打崩，所以超出部分折叠成省略号。
 local MAX_ITEM_ICONS = 15
 
-local function starter_items_caption()
-    local items = storage.starter_items or {}
+-- 值为 {{name=, count=}, ...} 的配置项，都按图标渲染当前值。
+local ITEM_LIST_KEYS = {starter_items = true, starter_equipment = true}
+
+local function item_list_caption(key)
+    local items = storage[key] or {}
     if #items == 0 then return '{}' end
 
     local parts = {''}
@@ -138,9 +141,9 @@ function M.show(player)
                     item.applies, false)
             end
             for _, item in ipairs(tables_) do
-                if item.key == 'starter_items' then
-                    -- 起手清单：当前值（图标）在上、改法示例在下。理由见 starter_items_caption。
-                    row(grid, item.key, starter_items_caption(), item.applies, false, item.example)
+                if ITEM_LIST_KEYS[item.key] then
+                    -- 物品清单：当前值（图标）在上、改法示例在下。理由见 item_list_caption。
+                    row(grid, item.key, item_list_caption(item.key), item.applies, false, item.example)
                 else
                     row(grid, item.key, item.example, item.applies, true)
                 end

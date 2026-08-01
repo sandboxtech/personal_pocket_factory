@@ -93,6 +93,7 @@ M.TUNABLES = {
     {key = 'cycle_base_offset_minutes', default = 2, group = 'cycle', applies = 'new'},
     {key = 'hud_refresh_ticks', default = 3600, group = 'cycle', applies = 'live'},
     {key = 'tech_loss_k_max', default = 2, group = 'tech', applies = 'live'},
+    {key = 'starter_equipment_hours', default = 3, group = 'misc', applies = 'live'},
     {key = 'detail_hours', default = 6, group = 'misc', applies = 'live'},
     {key = 'block_blueprint_library', default = false, group = 'misc', applies = 'dead'},
     {key = 'debug', default = false, group = 'misc', applies = 'live'},
@@ -110,6 +111,10 @@ M.TUNABLE_TABLES = {
     -- （storage.starter_items[5] = ...）要求管理员先知道当前有几项，还容易在数组中间留空洞。
     {key = 'starter_items', group = 'misc', applies = 'new',
      example = "/sc storage.starter_items = {{name='iron-plate',count=500},{name='wood',count=100}}"},
+    -- applies 是 live 而不是 new：起始装备在【每次发放时】现读，
+    -- 改完对下一个复活的人就生效，不用等新玩家进来。
+    {key = 'starter_equipment', group = 'misc', applies = 'live',
+     example = "/sc storage.starter_equipment = {{name='modular-armor',count=1},{name='solar-panel-equipment',count=6}}"},
     {key = 'ring_tiles', group = 'ring', example = '/sc storage.ring_tiles.grown = \'refined-concrete\'', applies = 'repaint'},
     {key = 'world_patch_tiles', group = 'world', applies = 'reset',
      example = '/sc storage.world_patch_tiles.nauvis = {\'grass-1\',\'sand-1\'}'},
@@ -239,6 +244,22 @@ function M.ensure_defaults()
         {name = 'stone', count = 100},
         {name = 'wood', count = 100},
     }
+
+    -- ══ 新玩家的起始装备 ══
+    -- 和起手物资分开的原因：这两样的【发放时机】完全不同。
+    -- 起手物资只在"从零开始"时发（新玩家、环被回收后重建）；
+    -- 起始装备还会在【复活】时按冷却重发，是死亡之后的兜底补给。
+    --
+    -- 【顺序有意义】：带 equipment_grid 的装甲要排在前面，
+    -- grant_equipment 先把第一件这样的装甲穿上，再把后面的模块插进它的装备栏。
+    -- 反过来写的话，插模块时装备栏还不存在，模块会全部退回背包。
+    storage.starter_equipment = storage.starter_equipment or {
+        {name = 'modular-armor', count = 1},
+        {name = 'personal-roboport-equipment', count = 1},
+        {name = 'solar-panel-equipment', count = 6},
+    }
+    -- [玩家名] = 上次领取的 tick。复活时的冷却判定读它，见 players.maybe_grant_equipment。
+    storage.starter_equipment_at = storage.starter_equipment_at or {}
 
     -- ══ 公共世界 ══
     -- 每星球各自的重置周期（分钟）。周期长短即难度分层：

@@ -112,6 +112,95 @@ local function grant_starter(player)
     end
 end
 
+-- 起始装备（默认：模块装甲 + 个人机器人指令模块 + 6 块太阳能板）。
+--
+-- 【发的是装好的一整套，不是一堆零件】：装甲直接穿上，模块直接插进装备栏。
+-- 玩家刚死完站在空荡荡的环里，最不需要的就是"先自己把装备拼起来"这一步；
+-- 而且个人机器人指令模块没有电就是块砖，太阳能板必须和它插在同一件装甲里才有意义，
+-- 丢进背包等于把"这套装备能用"这件事变成了玩家要自己发现的知识。
+--
+-- 装不进去的一律退回背包（装甲栏已经有东西、装备栏放不下、名字写错）：
+-- 这个函数在多条路径上被调用，任何一条都不该因为"装备栏满了"而静默吞掉物品。
+local function equip_or_insert(player, armor_stack, item)
+    local count = math.max(1, math.floor(item.count or 1))
+    -- 装备原型和物品原型是两张表：solar-panel-equipment 两边都有，
+    -- 但只有 prototypes.equipment 里那条才说明它能插进装备栏。
+    if armor_stack and armor_stack.valid_for_read and prototypes.equipment[item.name] then
+        local grid = armor_stack.grid
+        if grid then
+            for _ = 1, count do
+                -- put 不给 position 时由引擎自己找空位；放不下返回 nil，
+                -- 这时把这一个退回背包，继续试下一个（后面的可能更小、仍放得下）。
+                if not grid.put{name = item.name} then
+                    player.insert{name = item.name, count = 1}
+                end
+            end
+            return
+        end
+    end
+    player.insert{name = item.name, count = count}
+end
+
+-- 发一套起始装备，并记下时间。返回是否真的发了东西。
+--
+-- 时间戳记在 storage.starter_equipment_at[玩家名]（按名字，和 storage 其余部分一致），
+-- 复活时的冷却判定读的就是它。
+local function grant_equipment(player)
+    local list = storage.starter_equipment or {}
+    if #list == 0 then return false end
+
+    -- 先把装甲穿上，再往它的装备栏里插模块 —— 顺序反了的话装备栏还不存在。
+    -- 判据是"清单里第一件带 equipment_grid 的装甲"，不写死 modular-armor：
+    -- 管理员把默认装甲换成动力装甲时，这段不需要跟着改。
+    local armor_inv = player.get_inventory(defines.inventory.character_armor)
+    for _, item in ipairs(list) do
+        local proto = item.name and prototypes.item[item.name]
+        if proto and armor_inv and armor_inv[1] and not armor_inv[1].valid_for_read
+                and proto.equipment_grid then
+            armor_inv[1].set_stack{name = item.name, count = 1}
+        end
+    end
+
+    local armor_stack = armor_inv and armor_inv[1] or nil
+    for _, item in ipairs(list) do
+        if item.name and prototypes.item[item.name] then
+            -- 已经穿在身上的那件装甲不要再发一次
+            local worn = armor_stack and armor_stack.valid_for_read
+                and armor_stack.name == item.name
+            if not worn then
+                equip_or_insert(player, armor_stack, item)
+            end
+        end
+    end
+
+    storage.starter_equipment_at = storage.starter_equipment_at or {}
+    storage.starter_equipment_at[player.name] = game.tick
+    return true
+end
+M.grant_equipment = grant_equipment
+
+-- 距离上次领起始装备过了多久（tick）。从没领过返回一个大到必定过冷却的数。
+local function since_equipment(player_name)
+    storage.starter_equipment_at = storage.starter_equipment_at or {}
+    local at = storage.starter_equipment_at[player_name]
+    if not at then return math.huge end
+    return game.tick - at
+end
+
+-- 复活时的补给：超过冷却就再发一套。
+--
+-- 【冷却的意义是把"死了重来"和"刷装备"分开】。没有冷却的话，玩家原地自杀就能
+-- 无限刷模块装甲和太阳能板，那不是补给是产线。定成 3 小时（storage.starter_equipment_hours）
+-- 是因为它比一轮星球重置还长：真正因为一次事故失去全部家当的人等得起，
+-- 而想靠死亡刷装备的人会发现这比自己造慢得多。
+function M.maybe_grant_equipment(player)
+    local hours = storage.starter_equipment_hours or 3
+    if since_equipment(player.name) < hours * constants.hour_to_tick then return false end
+    if not grant_equipment(player) then return false end
+    player.print({'pw.starter-equipment', hours})
+    return true
+end
+
 events.on(defines.events.on_player_created, function(event)
     local player = game.players[event.player_index]
     if not player then return end
@@ -120,6 +209,7 @@ events.on(defines.events.on_player_created, function(event)
     assign_group(player)
     pockets.enter(player)
     grant_starter(player)
+    grant_equipment(player)   -- 新玩家一定给，不看冷却（他还没有过"上一次"）
     -- 新玩家的初始体力池。默认倍数是 0，也就是不白送——所有人都从"攒"开始。
     -- 仍然保留这个入口：storage.stamina_initial_multiple 调大就是一份新手礼包，
     -- 派生自可领取上限而不是写死数字，调 cap 时礼包大小自动跟着变。
@@ -139,6 +229,12 @@ events.on(defines.events.on_player_joined_game, function(event)
     -- 离线期间环被回收过的话，这里重建。玩家不会掉进一个已经不存在的 surface。
     if not pockets.get(player) then
         pockets.enter(player)
+        -- 环被回收 = 建筑全没了，等于从零开始。所以起手物资和起始装备一起重发一份，
+        -- 【不看冷却】：这条路径不是玩家能刻意触发的（环只会被管理员删或超时回收），
+        -- 用冷却卡它只会让一个刚失去全部家当的人连第一台熔炉都造不出来。
+        -- 仍然会记下时间戳，所以他不会转头再死一次又领一套。
+        grant_starter(player)
+        grant_equipment(player)
         player.print({'pw.ring-rebuilt'})
     else
         -- 环还在，但不代表它是【完整】的：曾经出现过「环建到一半抛错、12 个收货箱缺席」
@@ -157,6 +253,9 @@ events.on(defines.events.on_player_respawned, function(event)
     if not player then return end
     -- 死了一律回自己的口袋世界，这里是唯一安全的地方
     pockets.enter(player)
+    -- 落地之后才发装备：pockets.enter 会 teleport，先发再传送也不会掉东西
+    -- （物品在背包里跟着走），但复活提示和装备到手的提示挨在一起更容易看懂。
+    M.maybe_grant_equipment(player)
 end)
 
 return M

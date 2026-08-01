@@ -16,7 +16,7 @@
 
 - 环里**没有任何矿产**，中间有一小片浅水（可以架海洋泵，走得过去）
 - 高度固定 128 格，宽度随经验增长
-- 死亡后一律在自己环里复活
+- 死亡后一律在自己环里复活，且**每 3 小时至多补发一套起始装备**（模块装甲 + 个人机器人指令模块 + 6 块太阳能板，直接穿好插好）
 - **唯一会失去它的方式是长期不上线**：先转公共任人拆解，再久才被回收（见下面「长期不上线」）。经验永远不受影响
 
 ## 十二种经验
@@ -133,7 +133,15 @@
 
 **热更新脚本后请执行一次 `/pw-repair`**：`game.reload_script()` 不触发 `on_init` / `on_configuration_changed`，新版本新增的配置字段和初始化步骤不会自动跑。
 
-新玩家的起手物资也可以改：`/sc storage.starter_items = {{name='iron-plate',count=500}}`，`/pw-config` 里能看到当前发的是什么。
+起手物资和起始装备都可以改，`/pw-config` 里直接显示当前发的是什么：
+
+```
+/sc storage.starter_items = {{name='iron-plate',count=500}}
+/sc storage.starter_equipment = {{name='modular-armor',count=1},{name='solar-panel-equipment',count=6}}
+/sc storage.starter_equipment_hours = 3
+```
+
+`starter_equipment` 里**带装备栏的装甲要排在前面**——发放时先把第一件这样的装甲穿上，后面的模块才有地方插。
 
 ### 导出 / 导入玩家进度
 

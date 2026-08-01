@@ -186,6 +186,7 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | `world_reset_offset_minutes` | 相邻星球首次排期的错开分钟数 | 10 |
 | `world_patch_tiles` | 各星球地貌斑块候选砖名单 | 见 `constants.lua` |
 | `starter_items` | 新玩家起手物资，整张表替换；未知物品名跳过 | 铁板 500 / 铜板 200 / 石 100 / 木 100 |
+| `starter_equipment` / `starter_equipment_hours` | 起始装备清单（带装备栏的装甲排在前面）/ 复活补发的冷却小时数 | 模块装甲 + 机器人指令模块 + 6 太阳能板 / 3 |
 | `cycle_minutes` / `cycle_phase_minutes` / `cycle_base_offset_minutes` | 相位调度器：大类任务周期 / 相位间隔 / 与星球重置错开的基础偏移 | 60 / 5 / 2 |
 | `tech_loss_k_max` | 漏水系数上限，每轮取 `x ~ U(0, 上限)`，`P = x × 瓶子种数 / 100` | 2 |
 | `block_blueprint_library` | 权限组是否禁蓝图库 | false（默认不禁） |
@@ -205,6 +206,7 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | `tech_loss_next_at` | 相位调度器写、`worlds.tech_loss_time_left()` 读，倒计时 UI 用 |
 | `cycle_next_at[任务key]` | 相位调度器每类任务的下次触发 tick |
 | `hud_next_refresh_at` | HUD 刷新调度 |
+| `starter_equipment_at[玩家名]` | 上次领取起始装备的 tick，复活冷却判定用 |
 | `dropoffs[player_index]` | `{surface, x, y}` 数组，按放置先后排列的投递口登记表；超过 `dropoff_limit` 时淘汰下标 1 |
 
 ## 数据流速览
