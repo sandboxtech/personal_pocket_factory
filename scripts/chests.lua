@@ -187,7 +187,9 @@ local function same_spot(rec, surface_name, position)
     return rec.surface == surface_name and rec.x == position.x and rec.y == position.y
 end
 
--- 收回一个超额的投递口。箱子已经不在了（被挖走 / 被世界重置清掉）就静默跳过。
+-- 收回一个超额的投递口。
+-- 箱子已经不在了（被挖走 / 被世界重置清掉）就静默跳过：没有东西可退，
+-- 也就没有什么要告诉玩家的，名额本身在调用方那边已经腾出来了。
 -- near_chest 只用来提供"东西掉在哪儿"的坐标：玩家此刻就站在新箱子旁边。
 local function evict(player_index, rec, near_chest, limit)
     local surface = rec.surface and game.surfaces[rec.surface]
@@ -208,7 +210,11 @@ local function evict(player_index, rec, near_chest, limit)
     -- 会让人不敢随便挪，而"挪到更好的矿脉旁边"恰恰是这条规则想鼓励的决策。
     --
     -- 背包塞不下时 insert 返回 0，剩下的直接掉在脚边，绝不静默吞掉。
+    --
+    -- 【两种去向要分别播报】：说"已退回你的背包"而箱子其实躺在地上，玩家会翻遍背包
+    -- 找不到，然后当成物品丢失来报 bug。掉在地上本身没问题，说错话才有问题。
     local inserted = player.insert{name = LINKED, count = 1}
+    local key = 'pw.dropoff-replaced'
     if inserted < 1 then
         near_chest.surface.spill_item_stack{
             position = near_chest.position,
@@ -216,8 +222,12 @@ local function evict(player_index, rec, near_chest, limit)
             enable_looted = true,
             force = player.force,
         }
+        key = 'pw.dropoff-replaced-spilled'
     end
-    player.print({'pw.dropoff-replaced', util.surface_label(rec.surface), limit})
+    player.print({key, util.surface_label(rec.surface), limit})
+    -- 玩家此刻正在铺箱子、眼睛盯着鼠标，聊天框那一行很容易整条错过 —— 而"我另一颗
+    -- 星球上的投递口被收走了"是他必须知道的事。pcall 包住：提醒不该反过来打断游戏。
+    pcall(function() player.play_sound{path = 'utility/new_objective'} end)
 end
 
 -- 把新放下的投递口登记进名额表，并淘汰超出上限的最老几个。
