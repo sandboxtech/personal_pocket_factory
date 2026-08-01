@@ -4,6 +4,11 @@ local constants = require('scripts.constants')
 -- bootstrap 里 require 的那几个模块（players/worlds/ships/pockets/constants）
 -- 没有一个反向 require commands，顶层 require 不成环。
 local bootstrap = require('scripts.bootstrap')
+local expio = require('scripts.expio')
+local ring = require('scripts.ring')
+-- gui.init 只 require 各个 gui 子模块，它们依赖 constants/util/pockets 一类的叶子模块，
+-- 没有一个反向 require commands，顶层 require 不成环。
+local gui = require('scripts.gui.init')
 -- gui.config 只 require constants 和 gui.popup，两者都不反向依赖 commands，顶层 require 不成环。
 local config_gui = require('scripts.gui.config')
 
@@ -201,6 +206,72 @@ commands.add_command('pw-reset-config', {'pw.cmd-reset-config-help'}, function(c
     local n = constants.reset_tunables()
     local who = caller and caller.name or {'pw.console-label'}
     game.print({'pw.cmd-reset-config-done', n, who})
+end)
+
+-- /pw-export
+--
+-- 把全部玩家进度（12 项经验 + 体力）写进 script-output：
+--   pw-progress-<tick>.json  给人看、给外部工具用
+--   exp_import.lua           直接就是导入文件，复制进 scenario 目录即可，不用改名
+--
+-- 【按玩家名导出，不是按在线玩家】：storage 一律按名字索引，里面很可能有已经不在
+-- game.players 里的名字（换服、删档、改名前的旧记录）。导出的意义正是保住这些。
+commands.add_command('pw-export', {'pw.cmd-export-help'}, function(command)
+    local caller, reply = admin_gate(command)
+    if not reply then return end
+
+    -- 有调用者就写到他自己那台机器上（"导出到本地"的本意），
+    -- 从服务器控制台执行则传 0，只写服务器那份。
+    local result = expio.write(caller and caller.index or 0)
+    if not result then
+        reply({'pw.cmd-export-none'})
+        return
+    end
+    reply({'pw.cmd-export-done', result.count, result.json_name, result.lua_name})
+end)
+
+-- /pw-import [confirm]
+--
+-- 从 scenario 目录里的 exp_import.lua 恢复进度。
+--
+-- 【为什么要先 reload_script】：引擎【没有运行时读文件的 API】，scenario 读磁盘
+-- 只有"加载阶段 require"这一条路。所以文件是在脚本加载那一刻被读进来的，
+-- 刚复制进去还没重新加载脚本时，这条指令看到的仍是 nil（或上一次的旧内容）。
+-- 完整流程：复制文件 → /c game.reload_script() → /pw-import → /pw-import confirm。
+--
+-- 要 confirm：这是【覆盖】不是合并，会把文件里每个玩家的经验和体力整个替换掉。
+commands.add_command('pw-import', {'pw.cmd-import-help'}, function(command)
+    local caller, reply = admin_gate(command)
+    if not reply then return end
+
+    local result = expio.pending()
+    if not result then
+        reply({'pw.cmd-import-none'})
+        return
+    end
+
+    local arg = command.parameter and string.match(command.parameter, '^%s*(%S*)')
+    if arg ~= 'confirm' then
+        reply({'pw.cmd-import-preview', #result.entries,
+            expio.known_count(result), result.bad_fields})
+        return
+    end
+
+    local n = expio.apply(result)
+
+    -- 经验变了，环宽就得跟着变。只对在线玩家立刻重涂：离线玩家的环下次进去时
+    -- pockets.ensure 会按新等级把地涂好，现在去动一个没人在的表面没有意义。
+    -- HUD 同理，顺手刷一次，免得数字停在导入之前的旧值上。
+    for _, entry in ipairs(result.entries) do
+        local player = game.players[entry.name]
+        if player and player.valid and player.connected then
+            ring.apply_growth(player)
+            gui.refresh_hud(player)
+        end
+    end
+
+    local who = caller and caller.name or {'pw.console-label'}
+    game.print({'pw.cmd-import-done', n, who})
 end)
 
 return M

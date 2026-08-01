@@ -128,10 +128,32 @@
 | `/ring-delete-all [confirm]` | 重置全服戴森环。不加参数只看预览 |
 | `/pw-repair` | 修复：补齐缺失的配置、重建权限组、补建世界、校准所有环。幂等，随时可执行 |
 | `/pw-reset-config [confirm]` | 把所有参数推回默认值（玩家进度不动）。不加参数只看预览 |
+| `/pw-export` | 导出所有玩家的经验和体力到 `script-output` |
+| `/pw-import [confirm]` | 从 `exp_import.lua` 恢复经验和体力。不加参数只看预览 |
 
 **热更新脚本后请执行一次 `/pw-repair`**：`game.reload_script()` 不触发 `on_init` / `on_configuration_changed`，新版本新增的配置字段和初始化步骤不会自动跑。
 
 新玩家的起手物资也可以改：`/sc storage.starter_items = {{name='iron-plate',count=500}}`，`/pw-config` 里能看到当前发的是什么。
+
+### 导出 / 导入玩家进度
+
+`/pw-export` 会在 `script-output` 里写两个文件：
+
+- `pw-progress-<tick>.json`——给人看、给外部工具用
+- `exp_import.lua`——**这个就是导入文件**，直接复制进 scenario 目录（和 `control.lua` 同级）即可，不用改名
+
+导入要三步，因为**引擎没有运行时读文件的 API**，脚本读磁盘只有「加载阶段 `require`」这一条路：
+
+```
+1. 把 exp_import.lua 复制进 scenario 目录
+2. /c game.reload_script()     ← 这一步才真正把文件读进来
+3. /pw-import                  ← 预览：几名玩家、几个能对上号、忽略了几个坏字段
+4. /pw-import confirm
+```
+
+导入是**覆盖不是合并**：文件里那些玩家的经验和体力被整个替换，没提到的玩家不受影响。文件里出现的陌生名字不算错——storage 按玩家名索引，人进服时自然对上号，所以可以在开服前先把老数据导进去。
+
+体力导出的是**点数**而不是内部的 tick，跨服务器搬运时不受 `stamina_ticks_per_point` 差异影响；恢复时间戳一律重置为当前时刻。
 
 参数改法：`/sc storage.名字 = 新值`。`/pw-config` 里每项都标了生效范围——绿色立刻全服生效，黄色要等特定时机（下次重置 / 只对新建的东西），灰色目前不起作用。
 

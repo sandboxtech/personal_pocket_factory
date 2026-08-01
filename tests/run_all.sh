@@ -8,6 +8,7 @@
 #                    要等运行到那一行才 "attempt to index a nil value"。
 #   check_api_args   引擎调用的位置参数写反。签名以 runtime-api.json 为准。
 #   test_geometry    环等级/半宽/砖块语义的纯函数单测。
+#   test_expio       导入数据的校验：脏数据（NaN/负数/拼错的键）必须在写进 storage 之前被挡住。
 #   check_locale     两语言键集、占位符、缺键死键、以及每个调用点的实参个数。
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -42,6 +43,7 @@ done
 step "未定义全局" bash tests/check_globals.sh
 step "引擎 API 位置参数" python3 tests/check_api_args.py
 step "几何单元测试" lua5.4 tests/test_geometry.lua
+step "导入校验单元测试" lua5.4 tests/test_expio.lua
 step "locale 一致性" python3 tests/check_locale.py
 
 echo
