@@ -242,12 +242,18 @@ function M.ensure_defaults()
 
     -- ══ 公共世界 ══
     -- 每星球各自的重置周期（分钟）。周期长短即难度分层：
-    -- nauvis 一小时一轮，是新人的练兵场；aquilo 五小时一轮，值得长线经营。
+    -- nauvis 两小时一轮，是新人的练兵场；aquilo 六小时一轮，值得长线经营。
     -- 【按名字索引，不按下标】——constants.PUBLIC_PLANETS 的顺序是
     -- {nauvis, vulcanus, gleba, fulgora, aquilo}，和这张表里 fulgora/gleba 的排列顺序不同，
     -- 谁按下标去取谁就会把这两个星球的周期错配。
+    --
+    -- 【五个值必须全是 60 的整数倍】。错峰排期的「永不撞车」是纯算术保证的，
+    -- 证明的前提正是这一条（见 worlds.schedule_all 的注释）：周期是 60 的倍数，
+    -- 每个星球的重置时刻对 60 取余就恒等于它的首次偏移（0/10/20/30/40 分），
+    -- 五个余数两两不同，于是永远不可能有两个星球在同一分钟重置。
+    -- 改成 90 或 150 这种非整倍数会让相位随时间漂移，某天开始两颗星球同时清空。
     storage.world_reset_minutes = storage.world_reset_minutes or {
-        nauvis = 60, vulcanus = 120, fulgora = 180, gleba = 240, aquilo = 300,
+        nauvis = 120, vulcanus = 180, fulgora = 240, gleba = 300, aquilo = 360,
     }
     -- 公共世界的矿脉尺寸倍率。这些星球一两小时就清空一次，原版尺寸是按「一局几十小时」
     -- 调的，直接用会让建设时间吃掉整轮的大半。数值是 MapGenSize：1 = 原版，2 = 大，
