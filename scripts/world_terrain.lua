@@ -19,6 +19,7 @@
 local constants = require('scripts.constants')
 local worlds = require('scripts.worlds')
 local noise = require('scripts.noise')
+local palette_index = require('scripts.palette').index
 local events = require('scripts.events')
 
 local M = {}
@@ -67,22 +68,34 @@ function M.patch_tiles(surface, planet_name, area, seed, angle, stretch, zoom)
 
     local n = #palette
     local sampler = noise.chunk_sampler(noise.octaves.blob, area.left_top, seed, angle, stretch, zoom)
+    -- 第二张【高频】噪声场，专门用来把色带边界抖开。种子加 900 是为了和主噪声、
+    -- 和 thin_trees 用的那张（+500）都错开，否则抖动会和斑块本身相关，
+    -- 边界仍然是一条（只是变形了的）确定曲线，抖不散。
+    local dither = noise.chunk_sampler(noise.octaves.fine, area.left_top, seed + 900, angle, stretch, zoom)
+    local blend = storage.world_patch_blend or 0.8
 
     local tiles = {}
     for _, t in pairs(found) do
         local p = t.position
-        local v = sampler(p.x, p.y)                          -- 约 [-1,1]
-        local idx = math.floor((v + 1) * 0.5 * n) + 1         -- 映射到 1..n
-        if idx < 1 then idx = 1 elseif idx > n then idx = n end
+        -- 量化前先加抖动：直接量化会让两种砖的分界落在一条等值线上，锋利如刀。
+        -- 具体理由和单位换算见 scripts/palette.lua。
+        local idx = palette_index(sampler(p.x, p.y), n, dither(p.x, p.y), blend)
         local target = palette[idx]
         if target ~= t.name then
             tiles[#tiles + 1] = {name = target, position = p}
         end
     end
-    -- 批量一次提交；correct_tiles=false 不需要引擎做过渡混合处理(名单里都是同星球原生砖，
-    -- 视觉上本来就互相兼容)；remove_colliding_entities=false 绝不因为换地块删掉任何实体。
+    -- 批量一次提交。
+    --
+    -- correct_tiles【必须是 true】（也是引擎的默认值，这里显式写出来是因为它曾经被设成 false）：
+    -- 这个开关管的是"改完之后重新计算受影响格子及其邻居的过渡处理"。关掉它，
+    -- 我们逐区块换砖之后邻居的过渡信息不会更新，边界就会硬邦邦地怼在一起。
+    -- 当初关掉它的理由是"名单里都是同星球原生砖，视觉上本来就互相兼容"——
+    -- 那句话把"砖的色调兼容"和"引擎需不需要处理过渡"混为一谈了，是错的。
+    --
+    -- remove_colliding_entities=false 保留：绝不因为换地块删掉任何实体。
     if #tiles > 0 then
-        surface.set_tiles(tiles, false, false)
+        surface.set_tiles(tiles, true, false)
     end
 end
 

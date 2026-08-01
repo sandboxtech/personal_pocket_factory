@@ -85,6 +85,7 @@ M.TUNABLES = {
     {key = 'ring_hide_private', default = true, group = 'lifecycle', applies = 'live'},
     {key = 'public_size', default = 2048, group = 'world', applies = 'reset'},
     {key = 'dropoff_limit', default = 12, group = 'world', applies = 'live'},
+    {key = 'world_patch_blend', default = 0.8, group = 'world', applies = 'reset'},
     {key = 'world_reset_offset_minutes', default = 10, group = 'world', applies = 'new'},
     {key = 'ship_life_hours', default = 50, group = 'ship', applies = 'live'},
     {key = 'ship_width_per_level', default = 16, group = 'ship', applies = 'new'},

@@ -144,6 +144,7 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | `scripts/geometry.lua` | 纯函数模块：环等级、半宽、tile 语义计算，戴森环形状的唯一真相源，可脱离游戏跑单测。 |
 | `scripts/ring.lua` | 戴森环涂砖与扩容：把 geometry 算出的语义值查表换成真实砖名，`on_chunk_generated` 的订阅入口，升级时逐区块行重涂新增竖带。 |
 | `scripts/bootstrap.lua` | 初始化/修复的那一套幂等步骤，`on_init`、`on_configuration_changed`、`/pw-repair` 三个调用方共用。 |
+| `scripts/palette.lua` | 噪声值 → 调色板下标，量化前先按色带宽度抖动。纯函数，边界抖不开就是整颗星球的等高线感。 |
 | `scripts/expio.lua` | 玩家进度（经验 + 体力）的导出与导入。导出走 `helpers.write_file`，导入只能靠加载阶段 `pcall(require, 'exp_import')`——引擎没有运行时读文件的 API。 |
 | `scripts/chests.lua` | 关联箱：木箱↔关联箱转化、三道防偷锁、12 箱阵创建与 link_id 切换、投递口名额（先进先出）。 |
 | `scripts/exp.lua` | 12 种经验记账 + 兑换：背包手动兑换与收货箱周期自动兑换共用同一套预览/结算逻辑。 |
@@ -181,6 +182,7 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | `ring_tiles` | 语义砖名（start/grown/space/void）→ 真实砖原型名 | 见 `constants.lua` |
 | `ring_public_hours` / `ring_delete_multiple` / `ring_min_hours` | 离线多久变公共（老玩家上限）/ 删除阈值是它的几倍 / 缩放后的下限 | 30 / 3 / 3 |
 | `ring_hide_private` | 私人环是否从遥控视角平面列表隐藏（公共环一律显示） | true |
+| `world_patch_blend` | 地貌斑块边界的抖动强度（单位：色带宽度），0 = 硬边界 | 0.8 |
 | `public_size` / `dropoff_limit` | 公共世界边长（tile）/ 每人同时能放几个投递口（全宇宙合计） | 2048 / 12 |
 | `world_reset_minutes` | 各星球重置周期（table，按星球名索引；必须都是 60 的整数倍，错峰证明依赖这一点） | nauvis 120 / vulcanus 180 / fulgora 240 / gleba 300 / aquilo 360 |
 | `world_reset_offset_minutes` | 相邻星球首次排期的错开分钟数 | 10 |
