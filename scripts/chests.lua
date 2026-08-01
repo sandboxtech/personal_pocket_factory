@@ -17,18 +17,27 @@ local M = {}
 local WOOD = 'wooden-chest'
 local LINKED = 'linked-chest'
 
--- 12 个收货箱的位置：两列 × 六行，以原点双向对称。
+-- 12 个收货箱的位置：两列 × 六行，以原点双向对称。坐标来自 constants
+-- （和玩家进环的落点放在一起定义，改箱阵坐标时不会漏掉出生点，见那里的注释）。
+--
 -- 12 个同 link_id 的箱子共享的是【同一个库存】，所以这不是 12 倍容量，
 -- 是 12 个并行存取口 —— 12 个机械臂可以同时从同一批货里抓取，
 -- 而单个箱子只能被有限几个机械臂围住。用箱子数量换吞吐量，不是换容量。
+-- 两列之间特意空出 6 格，就是留给机械臂和传送带把货接出去的地方。
 local function array_positions()
     local out = {}
-    for _, x in ipairs({-1, 0}) do
-        for y = -3, 2 do
+    for _, x in ipairs(constants.CHEST_COLUMNS) do
+        for y = constants.CHEST_ROW_FROM, constants.CHEST_ROW_TO do
             out[#out + 1] = {x = x + 0.5, y = y + 0.5}
         end
     end
     return out
+end
+
+-- 位置 → 字符串键。用于判断某个系统箱是不是还站在名单上的位置。
+-- 保留一位小数：所有位置都是 x.5 这种半格坐标，一位就够且不会有浮点表示差异。
+local function pos_key(x, y)
+    return string.format('%.1f,%.1f', x, y)
 end
 
 -- 某人的 12 箱阵此刻应该用哪个 link_id。
@@ -57,7 +66,31 @@ end
 -- 这里归属是入参直接给定的，不需要绕那一圈。
 function M.ensure_array(surface, player)
     local link_id = M.expected_link_id(player.name)
-    for _, pos in ipairs(array_positions()) do
+    local positions = array_positions()
+
+    -- ══ 先清掉不在名单上的旧系统箱 ══
+    -- 改过箱阵坐标之后，老环上会留着上一版位置的 12 个箱子，而下面那个循环只会
+    -- 在【新】位置补建 —— 不清理的话老环会变成 24 个箱子，而且旧的那批还照常收货。
+    -- 这也是 ensure_array 号称幂等所必需的：幂等意味着"跑完之后状态等于当前配置",
+    -- 而不只是"缺的补上"。
+    --
+    -- 判据是 destructible == false —— 系统箱的唯一标志（玩家放的箱子恒为可摧毁，
+    -- 见下面 on_built 里同一条判据）。所以这里绝不会误删玩家自己在环里放的关联箱。
+    --
+    -- 摧毁箱子【不会丢货】：关联箱的库存挂在 link_id 上，不挂在箱子实体上，
+    -- 货还在那份共享库存里，新位置的箱子一建好就能继续存取。
+    local wanted = {}
+    for _, pos in ipairs(positions) do wanted[pos_key(pos.x, pos.y)] = true end
+    for _, chest in pairs(surface.find_entities_filtered{name = LINKED}) do
+        if chest.valid and not chest.destructible then
+            local p = chest.position
+            if not wanted[pos_key(p.x, p.y)] then
+                chest.destroy()
+            end
+        end
+    end
+
+    for _, pos in ipairs(positions) do
         local existing = surface.find_entity(LINKED, pos)
         if not existing then
             local chest = surface.create_entity{

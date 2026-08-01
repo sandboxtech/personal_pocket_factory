@@ -198,14 +198,20 @@ on_init:
     worlds.schedule_all(true)  首次错峰排期（各自周期 + i×10 分钟偏移）
 
 on_player_created:
-    钉死 force -> assign_group -> pockets.enter（惰性建戴森环：create_surface
-    -> 关污染/隐藏 surface -> 涂初始区块 -> chests.ensure_array 建 12 箱阵
-    -> ring_state = 'private'）-> grant_starter -> stamina.add(初始体力)
+    钉死 force -> assign_group -> pockets.enter（pockets.ensure 惰性建 + 幂等自愈：
+    create_surface(关污染) -> 涂初始区块 -> chests.ensure_array 建 12 箱阵
+    -> ring_state/applied_half 记账 -> set_spawn_position -> 最后才 hide_surface）
+    -> grant_starter -> stamina.add(初始体力，默认倍数 0 即不送)
     -> gui.refresh_hud（主动建 HUD，不等周期任务）
 
+    【顺序不是随手排的】hide_surface 必须在最后：它是纯观感功能，曾经排在建箱阵
+    之前并因为参数写反抛错，把整条建环流程截断，表现为「地板在、箱子没了」。
+    ensure 的这几步全部幂等，每次进环都重跑一遍，半成品环因此能自愈。
+
 on_player_joined_game:
-    assign_group -> 环不存在则 pockets.enter 重建，否则 pockets.restore_on_join
-    （公共期立刻收回：link_id 改回 player.index，访客被请出去）-> gui.refresh_hud
+    assign_group -> 环不存在则 pockets.enter 重建，否则 pockets.ensure（自愈）
+    + pockets.restore_on_join（公共期立刻收回：link_id 改回 player.index，
+    访客被请出去）-> gui.refresh_hud
 
 相位调度器（script.on_nth_tick(3600)，约 1 分钟一次）:
     phase 0  worlds.tick_tech_loss()      全科技表判定，按瓶子种数掷概率撤销

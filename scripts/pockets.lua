@@ -118,7 +118,7 @@ function M.ensure(player)
     --
     -- set_spawn_position 是 per-force-per-surface 的，单 force 场景下即
     -- 「这个 surface 上的出生点」，各条环互不干扰。坐标和 M.enter 的落点保持一致。
-    game.forces.player.set_spawn_position({4, 0}, surface)
+    game.forces.player.set_spawn_position(constants.RING_SPAWN, surface)
 
     -- 放在最后：纯观感，前面的关键步骤全部做完才轮到它，它出问题也不会牵连任何人。
     hide_surface(surface)
@@ -154,8 +154,10 @@ end
 function M.enter(player)
     local surface = M.ensure(player)
     if not (surface and surface.valid) then return false end
-    -- 出生点在收货箱阵右侧，避开箱阵本身（箱阵占 x∈{-1,0}、y∈{-3..2}）
-    local pos = surface.find_non_colliding_position('character', {4, 0}, 32, 1) or {4, 0}
+    -- 落点在收货箱阵右侧、避开箱阵本身。坐标和箱阵坐标一起定义在 constants 里，
+    -- 那边有为什么必须放在一起看的说明。
+    local pos = surface.find_non_colliding_position('character', constants.RING_SPAWN, 32, 1)
+        or constants.RING_SPAWN
     player.teleport(pos, surface)
     return true
 end

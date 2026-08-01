@@ -278,7 +278,8 @@ local function visit_ring(player, owner_index)
     -- 惰性公共化：有人真的走进来的那一刻才切 link_id，不必等周期扫描。make_public 幂等。
     pockets.make_public(owner)
 
-    local pos = surface.find_non_colliding_position('character', {4, 0}, 64, 1) or {4, 0}
+    local pos = surface.find_non_colliding_position('character', constants.RING_SPAWN, 64, 1)
+        or constants.RING_SPAWN
     player.teleport(pos, surface)
 end
 
