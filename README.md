@@ -170,7 +170,7 @@
 
 支持 11 种语言，跟随客户端语言自动切换：简体中文、繁體中文、English、日本語、한국어、Русский、Deutsch、Français、Español、Português (BR)、Polski。
 
-开发者文档见 [PROJECT.md](PROJECT.md)。
+开发者文档见 [PROJECT.md](PROJECT.md)。从 8-01 上午版升级见 [MIGRATION.md](MIGRATION.md)。
 
 ---
 
