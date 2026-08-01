@@ -40,6 +40,14 @@ function M.show(player)
         detail.style.single_line = false
         detail.style.maximal_width = popup.WIDTH
     end
+
+    -- 交流群和项目地址【对所有人可见，且永远排在最后】。
+    -- 不进分级披露：新人恰恰是最需要有个地方问问题的那一批，
+    -- 把联系方式藏在"在线满 6 小时"后面完全说不通。
+    inner.add{type = 'line', direction = 'horizontal'}
+    local footer = inner.add{type = 'label', caption = {'pw.help-footer'}}
+    footer.style.single_line = false
+    footer.style.maximal_width = popup.WIDTH
 end
 
 return M
