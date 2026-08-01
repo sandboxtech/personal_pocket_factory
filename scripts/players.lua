@@ -18,7 +18,7 @@ local gui = require('scripts.gui.init')
 
 local M = {}
 
--- 本场景【默认不禁用玩家任何权限】，包括蓝图库。
+-- 本场景【默认不禁用玩家任何生产相关的权限】，包括蓝图库。
 --
 -- v1 禁蓝图的理由是「允许蓝图库的话，重置后 Ctrl+V 一秒恢复布局，重置就只剩重跑一遍物流」。
 -- 但这条理由在本版已经不成立：重置的是【公共世界】，而玩家的产线在【戴森环】里，
@@ -26,25 +26,64 @@ local M = {}
 -- 本版真正的持续压力来自科技漏水和弃厂公有化，蓝图一个都加速不了。
 --
 -- 关联箱的防偷因此不能靠权限组，改用实体级的 operable = false，见 chests.lua。
-local BLOCKED_ACTIONS = {}
+--
+-- ══ 唯一被禁的是「绕开 UI 自己建船 / 删船」这一组动作 ══
+--
+-- 归属制成立的前提是【每艘船都从 ships.create 出生】，否则脚本不知道船是谁的。
+-- ships.enforce_lock() 调的 lock_space_platforms() 只是【关掉那个按钮】
+-- （引擎文档原话："disables the space platforms button"），而建船的入口不止一个：
+-- input_action 里明明白白有一条 open_new_platform_button_from_rocket_silo ——
+-- 火箭井里还有一条路。只锁按钮挡不住它。
+--
+-- 删船同理，而且更要紧：delete_space_platform 是玩家自己就能触发的动作，
+-- 一旦放行，任何人都能删【任何一艘】船（飞船全服公有，谁都能登船，也就都能删）。
+-- 这比偷关联箱严重得多且不可撤销。所以删船只走 UI 那条路：
+-- scripts/gui/overview.lua 的拆船按钮 → ships.scuttle(player)，只拆调用者自己那艘。
+--
+-- cancel_delete_space_platform 【故意不禁】：禁掉它只会让某个由别的路径排上的删除
+-- 变得撤销不了，纯粹有害无益。
+-- rename_space_platform 也不禁：归属记在 storage 的平台 index 上，改名纯属外观。
+local ACTION_GROUPS = {
+    {
+        -- 复用飞船那个开关：它的含义本来就是「UI 是建船的唯一入口」。
+        -- 设成 false 就恢复原版行为（同时 ships.enforce_lock 会把按钮解锁回去）。
+        flag = 'ship_lock_native_creation',
+        actions = {
+            'create_space_platform',
+            'instantly_create_space_platform',
+            'open_new_platform_button_from_rocket_silo',
+            'delete_space_platform',
+        },
+    },
+}
 
 local GROUP_NAME = 'pw_default'
 
--- 建（或取）本场景的权限组，并按 storage.block_blueprint_library 配置禁用动作。
+-- 建（或取）本场景的权限组，并按各组自己的开关禁用动作。
+--
+-- 【生效时机】：本函数在 on_init / on_configuration_changed 时调用，
+-- 所以热改那些开关不会立刻改变权限组，要等下次加载。按钮那把锁（ships.enforce_lock）
+-- 才是每分钟压一遍的。两者一起构成「按钮看不见 + 动作发不出去」两道。
+--
 -- defines.input_action[name] 取不到时（版本改名/拼错）返回 nil，直接传给 set_allows_action 会崩，
--- 所以逐个校验、跳过并写 log。
+-- 所以逐个校验、跳过并写 log —— 新版 Factorio 改了动作名的话，日志里会留下线索，
+-- 而不是安静地少禁一条。
 function M.setup_perm_group()
     local perms = game.permissions
     local group = perms.get_group(GROUP_NAME) or perms.create_group(GROUP_NAME)
     if not group then return nil end
 
-    local blocked = storage.block_blueprint_library ~= false
-    for _, action_name in ipairs(BLOCKED_ACTIONS) do
-        local action = defines.input_action[action_name]
-        if action then
-            group.set_allows_action(action, not blocked)
-        else
-            log('[pw] 权限组跳过无效 input_action 名: ' .. tostring(action_name))
+    for _, entry in ipairs(ACTION_GROUPS) do
+        -- 开关默认开启：storage 里没有这个字段时按「禁用」处理，
+        -- 宁可多禁一条也不要在配置缺失时把归属制的前提悄悄放开。
+        local blocked = storage[entry.flag] ~= false
+        for _, action_name in ipairs(entry.actions) do
+            local action = defines.input_action[action_name]
+            if action then
+                group.set_allows_action(action, not blocked)
+            else
+                log('[pw] 权限组跳过无效 input_action 名: ' .. tostring(action_name))
+            end
         end
     end
     return group
