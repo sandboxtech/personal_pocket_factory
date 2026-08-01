@@ -186,6 +186,53 @@ function M.delete_ring(player)
     return true
 end
 
+-- 删除【所有】戴森环。经验一点不动，没的只有建筑和关联库存。
+-- 返回删掉的条数；公共世界缺失导致无处安置玩家时返回 nil 加一个本地化 key。
+--
+-- 【不能简单地对每个人循环调 M.delete_ring】：delete_ring 里的 evacuate 把人送回
+-- 「他自己的环」（M.enter），而这里连他自己的环也在删除名单上 ——
+-- 删到一半时把某人送回一条刚删掉的环，M.enter 会当场把它重建出来，
+-- 循环跑完那条环还在，「删除所有」就不成立了。
+-- 所以分两步：先把所有还站在任意戴森环上的人挪到公共世界，再统一删。
+--
+-- 【删完不立刻重建在线玩家的环】：game.delete_surface 是延迟生效的
+-- （它 raise on_pre_surface_deleted 和 on_surface_deleted 两个事件，文档措辞也是
+-- "Deletes the given surface ... if possible"），同一 tick 内拿同名去 create_surface
+-- 会撞上还没真正消失的旧 surface —— 而 surface 名必须唯一。
+-- 玩家点一下 HUD 上的回环按钮就会惰性重建（M.ensure），那时候删除早已结算完毕。
+function M.delete_all_rings()
+    -- 安置点用第一个公共星球。它拿不到就整个中止：宁可什么都不删，
+    -- 也不能把人留在一个正在被删除的 surface 上——那是没验证过的状态。
+    local fallback = game.surfaces[constants.PUBLIC_PLANETS[1]]
+    if not (fallback and fallback.valid) then
+        return nil, 'pw.cmd-ring-delete-all-no-world'
+    end
+
+    for _, p in pairs(game.connected_players) do
+        if ring.is_ring_surface(p.surface) then
+            p.print({'pw.ring-wiped'})
+            local origin = p.force.get_spawn_position(fallback)
+            local pos = fallback.find_non_colliding_position('character', origin, 128, 1) or origin
+            p.teleport(pos, fallback)
+        end
+    end
+
+    storage.ring_state = storage.ring_state or {}
+    storage.ring_applied_half = storage.ring_applied_half or {}
+
+    local deleted = 0
+    for _, player in pairs(game.players) do
+        local surface = M.get(player)
+        if surface and surface.valid then
+            game.delete_surface(surface)
+            storage.ring_state[player.name] = nil
+            storage.ring_applied_half[player.name] = nil
+            deleted = deleted + 1
+        end
+    end
+    return deleted
+end
+
 -- 玩家上线：若他的环在公共期，立刻收回。
 function M.restore_on_join(player)
     storage.ring_state = storage.ring_state or {}

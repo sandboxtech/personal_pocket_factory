@@ -49,6 +49,57 @@ commands.add_command('ring-delete', {'pw.cmd-ring-delete-help'}, function(comman
     end
 end)
 
+-- /ring-delete-all [confirm]
+--
+-- 删掉全服所有玩家的戴森环。经验一点不动，没的只有建筑和关联库存 ——
+-- 每个人下次点回环按钮时，环按他的经验立刻长回原来的宽度。用于赛季重置。
+--
+-- 【不带参数只做预览，不删任何东西】。Factorio 控制台没有撤销，而这条指令一次抹掉
+-- 全服所有人的工厂，破坏面比 /ring-delete 大一个数量级，值得多按一次回车。
+--
+-- 【和 /ring-delete 的规则不一致是有意的】：单点删除会拒绝在线的目标，理由是
+-- 「想删就先请人下线」——对一个人提这个要求是合理的。但全服重置时要求所有人先下线
+-- 并不现实，而且一个「号称删除所有、实际悄悄跳过在线玩家」的指令更危险：
+-- 管理员以为重置完了，其实没有。要么全做要么不做，中间状态最坑人。
+-- 在线玩家会被先挪到公共世界并收到提示，不会在毫无察觉的情况下被动世界。
+commands.add_command('ring-delete-all', {'pw.cmd-ring-delete-all-help'}, function(command)
+    local caller = command.player_index and game.players[command.player_index]
+    if caller and not caller.admin then
+        caller.print({'pw.cmd-admin-only'})
+        return
+    end
+
+    local function reply(msg)
+        if caller then caller.print(msg) else game.print(msg) end
+    end
+
+    local rings = pockets.all_rings()
+    if #rings == 0 then
+        reply({'pw.cmd-ring-delete-all-none'})
+        return
+    end
+
+    local arg = command.parameter and string.match(command.parameter, '^%s*(%S*)')
+    if arg ~= 'confirm' then
+        local online = 0
+        for _, entry in ipairs(rings) do
+            local owner = game.players[entry.owner_index]
+            if owner and owner.connected then online = online + 1 end
+        end
+        reply({'pw.cmd-ring-delete-all-preview', #rings, online})
+        return
+    end
+
+    local deleted, err = pockets.delete_all_rings()
+    if not deleted then
+        reply({err or 'pw.cmd-ring-delete-all-no-world'})
+        return
+    end
+
+    local who = caller and caller.name or {'pw.console-label'}
+    game.print({'pw.cmd-ring-delete-all-done', deleted, who})
+end)
+
 -- /ring-repair
 --
 -- 把所有已存在的戴森环重新过一遍 ensure，补齐缺失的部分。
