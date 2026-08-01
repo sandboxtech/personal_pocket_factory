@@ -83,8 +83,33 @@ local function boost_resources(mgs)
     end
 end
 
+-- 把这颗星球的地图生成设置先还原成原型自带的状态。
+--
+-- 【这一步是为了洗掉脚本自己写进去的污染】，不是保险措施：
+-- map_gen_settings 是【存进存档的】，脚本每次写进去的东西会一直留着。
+-- 旧版 boost_resources 把全部矿种写进了每颗星球的 autoplace_controls，
+-- 光把那个循环改对并不能让废料从 Nauvis 上消失 —— 那个键已经躺在存档里了，
+-- 新的循环遍历"已有的键"时照样会看见它、照样把它调大。
+-- reset_map_gen_settings() 直接回到原型状态（引擎文档："Resets the map gen settings
+-- on this planet to the default from-prototype state"），星球的原生矿种名单
+-- 和 autoplace_settings 白名单一并复原，此后每轮重置都从干净状态重新叠加。
+--
+-- 幂等，每次重置都跑一遍不会累积任何东西 —— 这正是它的价值：
+-- 无论存档里此刻攒了多少历史污染，下一轮重置之后都归零。
+-- 宽高和种子在本函数后面重新设，boost 也重新叠，所以还原不会丢掉任何需要的设置。
+local function reset_to_prototype(surface)
+    local planet = game.planets[surface.name]
+    if not (planet and planet.valid) then return end
+    -- 太空平台之类没有 planet 对象的 surface 走不到这里；真出意外也不该中断重置流程。
+    local ok, err = pcall(function() planet.reset_map_gen_settings() end)
+    if not ok then
+        log('[pw] reset_map_gen_settings 失败（沿用现有设置）：' .. tostring(err))
+    end
+end
+
 function M.apply_bounds(surface, seed)
     local size = storage.public_size or 2048
+    reset_to_prototype(surface)
     local mgs = surface.map_gen_settings
     mgs.width = size
     mgs.height = size

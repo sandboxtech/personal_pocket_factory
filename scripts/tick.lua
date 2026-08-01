@@ -119,6 +119,20 @@ script.on_nth_tick(3600, events.safe('nth_tick', function()
     local tick = game.tick
     storage.cycle_next_at = storage.cycle_next_at or {}
 
+    -- 补齐新增的默认字段。
+    --
+    -- 【为什么不能只靠 on_configuration_changed】：那个事件只在 mod 列表/版本变化时触发。
+    -- 本项目的实际更新方式是「只替换 scenario 目录里的 lua 文件，再 game.reload_script()」——
+    -- reload_script 重新加载脚本、重新注册事件，但【不触发 on_init 也不触发
+    -- on_configuration_changed】，于是新版本新增的 storage 字段一个都不会被写进去。
+    -- 后果不是报错而是静默错误：新加的表字段读出 nil，代码里 `或` 兜底不了表
+    -- （storage.starter_items or {} 兜出来是空表 → 新玩家一件起手物资都拿不到）。
+    --
+    -- ensure_defaults 全部是「== nil 才写」的判断，幂等且极便宜（几十次比较），
+    -- 每分钟跑一遍换来的是「不管脚本以什么方式换进来，最迟一分钟后配置就是齐的」。
+    -- 注意它只补【缺失】的字段，不会把管理员改过的值改回去，也不会更新老字段的旧值。
+    constants.ensure_defaults()
+
     -- 大类周期任务：逐个检查是否到了各自的下次触发时刻（存 tick，不取模）。
     for _, task in ipairs(CYCLE_TASKS) do
         ensure_scheduled(task)
