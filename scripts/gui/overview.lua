@@ -83,52 +83,34 @@ local function render_my_ship(container, player)
     end
 end
 
--- 一位玩家一行（其实是一个小 frame，里面三到四行）。
-local function render_row(container, viewer, row)
+-- 按钮上的图标。纯图标 + tooltip，不放文字：
+-- 一行要塞下操作、名字、状态、环的数据、飞船，文字按钮会把这一行撑得很宽，
+-- 人数一多就得横向滚动 —— 而横向滚动是列表类界面里最难用的东西。
+-- 这也和屏幕最上方那排纯图标传送按钮的做法一致（见 gui/hud.lua）。
+local RING_ICON = '[space-location=solar-system-edge]'
+local SHIP_ICON = '[item=space-platform-starter-pack]'
+
+-- 一位玩家【一行】，四个单元格填进外面传进来的 table：操作 / 名字状态 / 环 / 飞船。
+--
+-- 用 table 而不是每人一个 frame，是为了【跨行对齐】：扫一列就能比较所有人的等级或
+-- 飞船寿命，而一堆各自为政的 frame 只能一个一个读。人多的时候这个差别很大。
+--
+-- 【每行必须正好填满 column_count 个单元格】——某一列在当前条件下没内容时也要塞一个
+-- empty-widget 占位，否则后面所有行都会串列。
+local function render_row(grid, viewer, row)
     local veteran = util.is_veteran(viewer)
     local player = row.player
     local ring_entry, ship = row.ring, row.ship
 
-    local frame = container.add{type = 'frame', direction = 'vertical'}
-    frame.style.horizontally_stretchable = true
-
-    -- ① 名字 + 在线状态
-    local head = frame.add{type = 'flow', direction = 'horizontal'}
-    head.style.vertical_align = 'center'
-    head.add{type = 'label', caption = {'pw.overview-name', player.name}}
-    if player.connected then
-        head.add{type = 'label', caption = {'pw.overview-online'}}
-    elseif veteran and ring_entry then
-        head.add{type = 'label', caption = {'pw.overview-offline', ring_entry.idle_hours}}
-    else
-        head.add{type = 'label', caption = {'pw.overview-offline-plain'}}
-    end
-
-    -- ② 环的细节：只给老玩家。新人知道「这人有条环、能不能进」就够了。
-    if ring_entry and veteran then
-        local played = math.floor((player.online_time or 0) / constants.hour_to_tick)
-        frame.add{type = 'label', caption = {'pw.overview-ring-detail',
-            ring_entry.level, ring_entry.half_width * 2, played}}
-    end
-
-    -- ③ 飞船那一行。剩余寿命是个需要规划的数字（要不要现在上去搬东西），
-    -- 所以和环宽一样归入「老玩家才看」。
-    if ship then
-        if veteran then
-            frame.add{type = 'label', caption = {'pw.overview-ship-detail',
-                ship.platform.name, ship.left_hours}}
-        else
-            frame.add{type = 'label', caption = {'pw.overview-ship-plain', ship.platform.name}}
-        end
-    end
-
-    -- ④ 按钮行
-    local actions = frame.add{type = 'flow', direction = 'horizontal'}
+    -- ① 操作：能去的地方各一颗图标按钮
+    local actions = grid.add{type = 'flow', direction = 'horizontal'}
     actions.style.vertical_align = 'center'
+    actions.style.horizontal_spacing = 2
 
     if ring_entry then
-        local go = actions.add{type = 'button', name = 'pw_ov_ring_' .. ring_entry.owner_index,
-                               caption = {'pw.overview-go-ring'}}
+        local go = actions.add{type = 'button', style = 'tool_button',
+                               name = 'pw_ov_ring_' .. ring_entry.owner_index, caption = RING_ICON}
+        go.tooltip = {'pw.overview-go-ring-tip'}
         if not ring_entry.enterable then
             go.enabled = false
             -- 还差多久才可进入。阈值因人而异（新人按在线时长缩放，见 pockets.public_threshold），
@@ -139,31 +121,91 @@ local function render_row(container, viewer, row)
     end
 
     if ship then
-        local board = actions.add{type = 'button', name = 'pw_ov_ship_' .. ship.index,
-                                  caption = {'pw.overview-go-ship'}}
+        local board = actions.add{type = 'button', style = 'tool_button',
+                                  name = 'pw_ov_ship_' .. ship.index, caption = SHIP_ICON}
+        board.tooltip = {'pw.overview-go-ship-tip'}
         if not ship.ready then
             board.enabled = false
             board.tooltip = {'pw.overview-ship-not-ready'}
         end
+    end
+
+    -- ② 名字 + 在线状态
+    local who = grid.add{type = 'flow', direction = 'horizontal'}
+    who.style.vertical_align = 'center'
+    who.add{type = 'label', caption = {'pw.overview-name', player.name}}
+    if player.connected then
+        who.add{type = 'label', caption = {'pw.overview-online'}}
+    elseif veteran and ring_entry then
+        who.add{type = 'label', caption = {'pw.overview-offline', ring_entry.idle_hours}}
+    else
+        who.add{type = 'label', caption = {'pw.overview-offline-plain'}}
+    end
+
+    -- ③ 环的细节：只给老玩家。新人知道「这人有条环、能不能进」就够了。
+    if ring_entry and veteran then
+        local played = math.floor((player.online_time or 0) / constants.hour_to_tick)
+        grid.add{type = 'label', caption = {'pw.overview-ring-detail',
+            ring_entry.level, ring_entry.half_width * 2, played}}
+    else
+        grid.add{type = 'empty-widget'}
+    end
+
+    -- ④ 飞船。剩余寿命是个需要规划的数字（要不要现在上去搬东西），
+    -- 和环宽一样归入「老玩家才看」。
+    if ship then
+        grid.add{type = 'label', caption = veteran
+            and {'pw.overview-ship-detail', ship.platform.name, ship.left_hours}
+            or  {'pw.overview-ship-plain', ship.platform.name}}
+    else
+        grid.add{type = 'empty-widget'}
+    end
+end
+
+-- 一张两列的紧凑表：一颗登船图标 + 一行飞船信息。无主飞船段用它。
+local function render_ship_list(container, viewer, list)
+    local grid = container.add{type = 'table', column_count = 2}
+    grid.style.horizontal_spacing = 8
+    grid.style.vertical_spacing = 2
+    local veteran = util.is_veteran(viewer)
+    for _, ship in ipairs(list) do
+        local board = grid.add{type = 'button', style = 'tool_button',
+                               name = 'pw_ov_ship_' .. ship.index, caption = SHIP_ICON}
+        board.tooltip = {'pw.overview-go-ship-tip'}
+        if not ship.ready then
+            board.enabled = false
+            board.tooltip = {'pw.overview-ship-not-ready'}
+        end
+        grid.add{type = 'label', caption = veteran
+            and {'pw.overview-ship-detail', ship.platform.name, ship.left_hours}
+            or  {'pw.overview-ship-plain', ship.platform.name}}
     end
 end
 
 function M.show(player)
     local inner = popup.open_popup(player, {'pw.overview-title'})
 
+    -- 「我的飞船 / 造船」钉在滚动区【外面】：这是本页唯一属于你自己的操作，
+    -- 翻到第 30 个人时也不该把它滚出视野。
+    render_my_ship(inner, player)
+    inner.add{type = 'line', direction = 'horizontal'}
+
     local scroll = inner.add{type = 'scroll-pane', name = 'pw_ov_scroll', direction = 'vertical'}
     scroll.style.width = popup.WIDTH - 12
-    scroll.style.maximal_height = 640
-
-    render_my_ship(scroll, player)
-    scroll.add{type = 'line', direction = 'horizontal'}
+    scroll.style.maximal_height = 560
 
     local rows, unowned = build_rows()
     if #rows == 0 then
         scroll.add{type = 'label', caption = {'pw.overview-empty'}}
-    end
-    for _, row in ipairs(rows) do
-        render_row(scroll, player, row)
+    else
+        -- 一位玩家一行，四列对齐。人多了由 scroll-pane 纵向滚动，
+        -- 横向绝不滚：所有单元格的内容都是短的（图标按钮 / 名字 / 几个数字）。
+        local grid = scroll.add{type = 'table', name = 'pw_ov_grid', column_count = 4}
+        grid.style.horizontal_spacing = 8
+        grid.style.vertical_spacing = 2
+        for _, row in ipairs(rows) do
+            render_row(grid, player, row)
+        end
     end
 
     -- 无主飞船：玩家从火箭井原生造的平台，脚本不知道主人是谁。
@@ -171,22 +213,7 @@ function M.show(player)
     if #unowned > 0 then
         scroll.add{type = 'line', direction = 'horizontal'}
         scroll.add{type = 'label', caption = {'pw.overview-unowned-head'}}
-        for _, ship in ipairs(unowned) do
-            local flow = scroll.add{type = 'flow', direction = 'horizontal'}
-            flow.style.vertical_align = 'center'
-            local board = flow.add{type = 'button', name = 'pw_ov_ship_' .. ship.index,
-                                   caption = {'pw.overview-go-ship'}}
-            if not ship.ready then
-                board.enabled = false
-                board.tooltip = {'pw.overview-ship-not-ready'}
-            end
-            if util.is_veteran(player) then
-                flow.add{type = 'label', caption = {'pw.overview-ship-detail',
-                    ship.platform.name, ship.left_hours}}
-            else
-                flow.add{type = 'label', caption = {'pw.overview-ship-plain', ship.platform.name}}
-            end
-        end
+        render_ship_list(scroll, player, unowned)
     end
 end
 
