@@ -28,6 +28,7 @@ local worlds = require('scripts.worlds')
 local constants = require('scripts.constants')
 local gui = require('scripts.gui.init')
 local exp = require('scripts.exp')
+local ships = require('scripts.ships')
 
 local M = {}
 
@@ -37,15 +38,16 @@ local M = {}
 --   触发后下一次排在"这次的触发时刻 + 一个周期"，不是"现在 + 一个周期"，
 --   避免因为某一 tick 处理慢/卡顿而让相位随时间慢慢漂移。
 --
--- 加一个新的周期任务只需要在这里追加一行，比如飞船寿命
--- （等 scripts/ships.lua 写出来之后）：
---   { key = 'ship_lifecycle', phase_index = 2, fn = function() ships.tick_lifecycle() end }
--- 不用改下面的调度逻辑，也不用手工挑一个"不会撞车"的取模常数 —— 相位序号本身就负责错开。
--- （飞船寿命现在先不加：scripts/ships.lua 还不存在。）
+-- 加一个新的周期任务只需要在这里追加一行，不用改下面的调度逻辑，
+-- 也不用手工挑一个"不会撞车"的取模常数 —— 相位序号本身就负责错开。
+--
+-- 相位 0/1/2/3 加上 2 分钟基础偏移后，落在每小时的第 2/7/12/17 分钟，
+-- 和五个星球重置占用的 0/10/20/30/40 分全部错开（证明见 ensure_scheduled 的注释）。
 local CYCLE_TASKS = {
     { key = 'tech_loss', phase_index = 0, fn = function() worlds.tick_tech_loss() end },
     { key = 'ring_lifecycle', phase_index = 1, fn = function() pockets.tick_lifecycle() end },
     { key = 'auto_convert', phase_index = 2, fn = function() exp.tick_auto_convert() end },
+    { key = 'ship_lifecycle', phase_index = 3, fn = function() ships.tick_lifecycle() end },
 }
 
 -- 把 tech_loss 的下次触发时刻镜像进 storage.tech_loss_next_at 一份，

@@ -11,6 +11,7 @@ local hud = require('scripts.gui.hud')
 local travel = require('scripts.gui.travel')
 local help = require('scripts.gui.help')
 local status = require('scripts.gui.status')
+local overview = require('scripts.gui.overview')
 
 local M = {}
 
@@ -39,9 +40,13 @@ function M.on_click(event)
         status.show(player)
     elseif name == 'pw_btn_help' then
         help.show(player)
+    elseif name == 'pw_btn_overview' then
+        overview.show(player)
     elseif travel.on_click(player, name) then
         return
     elseif status.on_click(player, name) then
+        return
+    elseif overview.on_click(player, name) then
         return
     end
 end

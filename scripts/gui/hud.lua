@@ -78,6 +78,11 @@ function M.refresh(player)
     row.add{type = 'button', name = 'pw_btn_status', caption = {'pw.btn-status'},
              tooltip = {'pw.btn-status-tip'}}
     row.add{type = 'button', name = 'pw_btn_help', caption = {'pw.btn-help'}}
+    -- 全服总览：所有戴森环 + 各人名下的飞船。原来那份「大家的戴森环」列表
+    -- 藏在传送窗口里、还只有老玩家看得见，等于新人根本不知道服务器上有别人。
+    -- 提到 HUD 上单开一个入口，全员可见（详细数值仍只给老玩家，见 gui/overview.lua）。
+    row.add{type = 'button', name = 'pw_btn_overview', caption = {'pw.btn-overview'},
+             tooltip = {'pw.btn-overview-tip'}}
     -- 「传送」放最后：既是最不常用的一步（图标行已经能一键直达），也和弹窗里
     -- 「传送」标签页/按钮统一放在最右边的约定对上。
     row.add{type = 'button', name = 'pw_btn_travel', caption = {'pw.btn-travel'},

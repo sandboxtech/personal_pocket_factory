@@ -289,6 +289,9 @@ function M.all_rings()
                 owner_name = player.name,
                 owner_index = player.index,
                 idle_hours = math.floor(idle),
+                -- 等级和半宽一起给出来：半宽本来就是等级算的，让调用方自己再算一遍
+                -- 等于把"环宽怎么来的"这条规则复制到 GUI 里，改规则时会漏改一处。
+                level = ring.level_of(player.name),
                 half_width = ring.half_width_of(player.name),
                 state = storage.ring_state[player.name] or 'private',
                 public_hours = public_hours,

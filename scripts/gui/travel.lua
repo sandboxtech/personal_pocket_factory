@@ -50,34 +50,10 @@ function M.show(player)
         end
     end
 
-    -- 三、所有玩家的戴森环：全部列出（含离线时长），但只有超过【各自的】公共化阈值的能进
-    --
-    -- 整段只给老玩家看：新人还没攒够经验，去别人环里逛也拿不走什么，
-    -- 先把"怎么攒经验、怎么用关联箱"这些基本操作弄明白更重要。
-    --
-    -- 阈值现在因人而异（新人按在线时长缩放，见 pockets.public_threshold），
-    -- 不再有一个全服统一的数字可以放进表头，所以表头文案改成不带具体小时数；
-    -- 每一行的「还差多久」用 entry.public_hours（这个主人自己的阈值）现算。
-    if util.is_veteran(player) then
-        local rings = pockets.all_rings()
-        if #rings > 0 then
-            inner.add{type = 'label', caption = {'pw.travel-rings-head'}}
-            for _, entry in ipairs(rings) do
-                local row = inner.add{type = 'flow', direction = 'horizontal'}
-                -- 按钮放在最前面，与上面公共世界那一段保持一致
-                local go = row.add{type = 'button', name = 'pw_go_ring_' .. entry.owner_index,
-                                   caption = {'pw.travel-go'}}
-                row.add{type = 'label', caption = {'pw.travel-ring-row',
-                    entry.owner_name, entry.half_width * 2, entry.idle_hours}}
-                if not entry.enterable then
-                    go.enabled = false
-                    -- 还差多久才可进入，给玩家一个可规划的数字
-                    go.tooltip = {'pw.travel-ring-locked',
-                        math.max(0, math.floor(entry.public_hours - entry.idle_hours))}
-                end
-            end
-        end
-    end
+    -- 三、别人的戴森环、以及各人名下的飞船，全部搬去了「全服总览」页
+    --     （scripts/gui/overview.lua）。它们回答的是同一个问题——服务器上现在有谁、
+    --     各自什么状态、我能去哪——拆在两个窗口里只会让玩家两处都翻一遍。
+    --     本窗口现在专职做一件事：把【我自己】送到某个地方去。
 end
 
 function M.on_click(player, name)
@@ -87,36 +63,10 @@ function M.on_click(player, name)
         return true
     end
 
-    -- 别人的戴森环。必须在下面的 'pw_go_' 前缀判断【之前】匹配，
-    -- 否则会被当成星球名 'ring_7' 传给 worlds.travel。
-    local ring_index = string.match(name, '^pw_go_ring_(%d+)$')
-    if ring_index then
-        local owner = game.players[tonumber(ring_index)]
-        local surface = owner and pockets.get(owner)
-        if not (surface and surface.valid) then
-            player.print({'pw.travel-ring-gone'})
-            popup.close_popup(player)
-            return true
-        end
-
-        -- 再校验一次门槛：按钮可能是在阈值改动前渲染的，也可能主人刚上线。
-        -- UI 的 enabled 只是提示，真正的闸门在这里。
-        -- 阈值用这个主人自己的 public_threshold（按他的在线时长缩放），不能再假设全服统一。
-        if pockets.idle_hours(owner) < (pockets.public_threshold(owner) / constants.hour_to_tick) then
-            player.print({'pw.travel-ring-locked-msg', owner.name})
-            popup.close_popup(player)
-            return true
-        end
-
-        -- 惰性公共化：有人真的走进来的那一刻才切 link_id，不必等周期扫描。
-        -- make_public 幂等，已经是 public 的直接返回 false。
-        pockets.make_public(owner)
-
-        local pos = surface.find_non_colliding_position('character', {4, 0}, 64, 1) or {4, 0}
-        player.teleport(pos, surface)
-        popup.close_popup(player)
-        return true
-    end
+    -- 「进别人的戴森环」搬去了 overview.lua（按钮名前缀改成 pw_ov_ring_）。
+    -- 顺带消掉了这里一个隐患：原来那个 pw_go_ring_<index> 必须抢在下面的
+    -- 'pw_go_' 前缀判断之前匹配，否则 'ring_7' 会被当成星球名传给 worlds.travel。
+    -- 换成互不重叠的前缀之后，两条路由谁先谁后都不影响正确性。
 
     if string.sub(name, 1, 6) == 'pw_go_' then
         worlds.travel(player, string.sub(name, 7))

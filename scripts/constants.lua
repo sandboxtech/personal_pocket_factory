@@ -216,6 +216,25 @@ function M.ensure_defaults()
         },
     }
 
+    -- ══ 飞船（太空平台） ══
+    -- 全服公有、每人最多一艘、以主人的名字命名、寿命有限。
+    -- 定位是「比星球活得久、比戴森环短命」的中间层：适合放这一轮要用的东西，
+    -- 不适合当仓库，想留下的产出还是得靠关联箱送回环里。
+    --
+    -- 登记表【按平台 index 做主键】，主人只是它的一个属性（可以是 nil）：
+    -- 玩家仍然可以从火箭井原生造平台，那种船脚本没参与创建、不知道是谁的，
+    -- 按玩家名做主键的话它在表里根本没有位置可放。详见 scripts/ships.lua 顶部注释。
+    storage.ships = storage.ships or {}                      -- [平台index] = {owner=玩家名或nil, created=创建tick}
+    storage.ship_life_hours = storage.ship_life_hours or 50  -- 寿命（小时），到点先撤人再销毁
+    storage.ship_width = storage.ship_width or 256           -- 引擎级硬边界，和戴森环同一个思路
+    storage.ship_height = storage.ship_height or 512
+    storage.ship_home_planet = storage.ship_home_planet or 'nauvis'   -- 默认环绕哪颗星球
+    -- 起步包自备。白送一艘船的话，「上太空」就从一个需要攒产能的目标
+    -- 退化成一个点一下的按钮，太空玩法本来的门槛整个消失。
+    if storage.ship_require_starter_pack == nil then
+        storage.ship_require_starter_pack = true
+    end
+
     -- ══ 相位调度器（大类周期任务：科技丢失、戴森环生命周期……） ══
     -- 用「显式相位」代替 v1 互质质数取模：周期和错开程度两个旋钮独立可调，
     -- 详细设计见 scripts/tick.lua 顶部注释。
