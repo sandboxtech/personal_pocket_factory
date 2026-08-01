@@ -339,6 +339,9 @@ function M.reset_world(planet_name)
 
     storage.world_reset_at = storage.world_reset_at or {}
     storage.world_reset_at[planet_name] = game.tick + M.period_of(planet_name)
+    -- 预警记录跟着新一轮清空，否则这颗星球从此再也不会预警第二次。
+    storage.world_warned = storage.world_warned or {}
+    storage.world_warned[planet_name] = nil
 
     -- 播报里不带轮次号。storage.world_run 仍然要维护（它是派生新种子和新地块分布的
     -- 依据，见 derive_seed / world_terrain），但那是内部计数，对玩家没有任何可操作性：
@@ -360,6 +363,101 @@ function M.tick_check()
     end
     return nil
 end
+
+-- 【为什么用 physical_surface 而不是 surface】：LuaPlayer.surface 是"当前操控/正在看的"
+-- 那个面，遥控视角看着 Nauvis 的人也算在内 —— 但他的人和背包都在自己环里，
+-- 星球清空一根毛都掉不了。physical_surface 才是"身体真的站在这儿"，
+-- 也就是【会连人带货一起被清掉】的那批人。预警要发给会挨打的人，不是发给围观的人。
+local function players_physically_on(surface)
+    local out = {}
+    for _, player in pairs(game.connected_players) do
+        if player.physical_surface == surface then
+            out[#out + 1] = player
+        end
+    end
+    return out
+end
+
+-- 提前多久预警（分钟）。默认 {5, 1}。
+local function warn_minutes()
+    local t = storage.world_warn_minutes
+    if type(t) ~= 'table' then return {5, 1} end
+    return t
+end
+
+local function notify(player, key, planet_name, minutes)
+    player.print({key, util.surface_label(planet_name), minutes})
+    -- 光有文字不够：玩家正在铺传送带、眼睛盯着鼠标，聊天框那一行很容易整条错过。
+    -- pcall 包住是因为音效路径是字符串，写错了会抛错 —— 而"提醒"绝不该反过来打断游戏。
+    pcall(function() player.play_sound{path = 'utility/new_objective'} end)
+end
+
+-- 周期任务：到点给还站在星球上的人发预警。由 tick.lua 每分钟调用。
+--
+-- 【每档只发一次】，记在 storage.world_warned[星球名][分钟数] 里，reset_world 时清空。
+-- 不记的话每分钟都会重发一遍 —— 5 分钟档会连着刷 5 条。
+--
+-- 【判据是 left <= 阈值 而不是 left == 阈值】：本函数每分钟才跑一次，
+-- 而 world_reset_at 不保证正好落在分钟边界上，用等号会整档漏掉。
+-- 代价是文案上的分钟数最多比实际早说 60 秒，比"该提醒的时候没提醒"划算得多。
+function M.tick_warn()
+    storage.world_reset_at = storage.world_reset_at or {}
+    storage.world_warned = storage.world_warned or {}
+
+    for _, name in ipairs(constants.PUBLIC_PLANETS) do
+        local at = storage.world_reset_at[name]
+        local surface = game.surfaces[name]
+        if at and surface and surface.valid then
+            local left = at - game.tick
+            local fired = storage.world_warned[name] or {}
+            for _, minutes in ipairs(warn_minutes()) do
+                if left <= minutes * constants.min_to_tick and not fired[minutes] then
+                    fired[minutes] = true
+                    for _, player in ipairs(players_physically_on(surface)) do
+                        notify(player, 'pw.world-reset-warning', name, minutes)
+                    end
+                end
+            end
+            storage.world_warned[name] = fired
+        end
+    end
+end
+
+-- 刚落到某颗星球上的人，如果这颗星球已经进了预警窗口，单独告诉他还剩多久。
+--
+-- 【这一条不能靠上面那个周期任务覆盖】：预警是"到点广播一次"，发完就结束了。
+-- 一个在第 4 分钟才降落的人永远收不到那条 5 分钟预警，而他恰恰是最需要知道的人 ——
+-- 他刚开始建，最容易一头扎进去，然后眼睁睁看着一切在几分钟后消失。
+--
+-- 分钟数【向上取整现算】，不是复用预警档位：这里回答的是"我还有多久"，
+-- 要的是真实剩余量，说"还有 5 分钟"而实际只剩 40 秒会把人坑得更惨。
+local function on_player_changed_surface(event)
+    local player = game.players[event.player_index]
+    if not (player and player.valid and player.connected) then return end
+    -- 认 physical_surface 而不是事件里的 surface_index：进遥控视角也会触发这个事件，
+    -- 而那时人还在自己环里，什么都不会失去，不该收到这条。
+    local surface = player.physical_surface
+    if not (surface and surface.valid) then return end
+
+    local at = (storage.world_reset_at or {})[surface.name]
+    if not at then return end          -- 不是公共星球，或者还没排期
+
+    local left = at - game.tick
+    if left <= 0 then return end
+
+    -- 窗口取配置里最大的那一档：管理员把预警改成 {10,5,1} 之后，
+    -- 落地提示的窗口跟着变成 10 分钟，不需要另外再配一个数。
+    local widest = 0
+    for _, minutes in ipairs(warn_minutes()) do
+        if minutes > widest then widest = minutes end
+    end
+    if left > widest * constants.min_to_tick then return end
+
+    notify(player, 'pw.world-reset-arrival', surface.name,
+        math.max(1, math.ceil(left / constants.min_to_tick)))
+end
+events.on(defines.events.on_player_changed_surface,
+    events.safe('worlds_arrival_warn', on_player_changed_surface))
 
 -------------------------------------------------------------------------------
 -- 科技丢失

@@ -184,6 +184,7 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | `ring_always_day` | 戴森环永昼（`surface.always_day`），太阳能 24 小时满出力 | true |
 | `world_climate_swing` / `world_terrain_scale` | 每轮气候摆幅 / 地貌块大小，都写进引擎的 `property_expression_names`，仅 Nauvis 有效 | 0.35 / 0.5 |
 | `public_size` / `dropoff_limit` | 公共世界边长（tile）/ 每人同时能放几个投递口（全宇宙合计） | 2048 / 12 |
+| `world_warn_minutes` | 重置前多久提醒星球上的人（分钟数组）；半路降落的按实际剩余时间单独提示 | {5, 1} |
 | `world_reset_minutes` | 各星球重置周期（table，按星球名索引；必须都是 60 的整数倍，错峰证明依赖这一点） | nauvis 120 / vulcanus 180 / fulgora 240 / gleba 300 / aquilo 360 |
 | `world_reset_offset_minutes` | 相邻星球首次排期的错开分钟数 | 10 |
 | `starter_items` | 新玩家起手物资，整张表替换；未知物品名跳过 | 铁板 500 / 铜板 200 / 石 100 / 木 100 |

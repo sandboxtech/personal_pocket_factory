@@ -115,6 +115,7 @@ tests/test_palette.lua
 | **Nauvis 每轮重置归零地图游玩时长** | `game.reset_time_played()`。不影响任何机制 |
 | **戴森环永昼** | 太阳能 24 小时满出力。老环靠周期任务自动补上，不用重建 |
 | **星球重置时清自己的统计** | 产量/击杀/建造曲线归零，戴森环的曲线不受影响 |
+| **重置前 5 分钟 / 1 分钟预警** | 只发给【身体真的在那颗星球上】的人；半路降落的单独收到实际剩余时间 |
 
 ### 新指令
 
@@ -179,6 +180,7 @@ tests/test_palette.lua
 | `starter_items` / `starter_equipment` / `starter_equipment_hours` | **新增**，可热改，`/pw-config` 里直接显示当前发的是什么 |
 | `world_climate_swing` / `world_terrain_scale` | **新增**，0.35 / 0.5 |
 | `ring_always_day` | **新增**，true |
+| `world_warn_minutes` | **新增**，{5, 1} |
 
 内部 storage 键 `player_chests` 改成了 `dropoffs`（结构从单条记录变成先进先出的列表）。
 旧键不会自动清，想清就 `/sc storage.player_chests = nil`。

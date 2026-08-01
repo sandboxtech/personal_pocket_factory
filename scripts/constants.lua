@@ -119,6 +119,9 @@ M.TUNABLE_TABLES = {
     {key = 'world_resource_boost', group = 'world', applies = 'reset',
      example = '/sc storage.world_resource_boost.size = 6'},
     {key = 'world_reset_minutes', group = 'world', example = '/sc storage.world_reset_minutes.nauvis = 30', applies = 'live'},
+    -- 数组，不是按星球名索引：五颗星球共用同一套提前量，没有分开配的理由。
+    {key = 'world_warn_minutes', group = 'world', applies = 'live',
+     example = '/sc storage.world_warn_minutes = {10, 5, 1}'},
     {key = 'quality_exp', group = 'misc', example = '/sc storage.quality_exp.legendary = 12', applies = 'live'},
     -- 整张表一次性替换，不是改某一项：起手清单是「一份礼包」，逐项增删的写法
     -- （storage.starter_items[5] = ...）要求管理员先知道当前有几项，还容易在数组中间留空洞。
@@ -306,6 +309,10 @@ function M.ensure_defaults()
     -- 相邻星球的首次排期错开这么多分钟，避免两个世界同时重置。
     storage.world_reset_at = storage.world_reset_at or {}
     storage.world_run = storage.world_run or {}
+    -- 重置前多久提醒还站在星球上的人（分钟）。
+    storage.world_warn_minutes = storage.world_warn_minutes or {5, 1}
+    -- [星球名][分钟档] = true，记哪一档已经播过，reset_world 时整条清掉。
+    storage.world_warned = storage.world_warned or {}
 
     -- ══ 飞船（太空平台） ══
     -- 全服公有、每人最多一艘、以主人的名字命名、寿命有限。

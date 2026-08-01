@@ -161,6 +161,10 @@ script.on_nth_tick(3600, events.safe('nth_tick', function()
     -- 这个形状（每个星球一个到期 tick），worlds.next_reset_at() 取其中最近的一个，
     -- 真到期了才调用 tick_check()，而不是像 v1 那样用一个和真实周期无关的
     -- 取模常数（3607）去隔几十秒抽查一次。
+    -- 预警要【每分钟都查】，不能塞进下面那个"到期才查"的分支里：
+    -- 预警的触发时刻比重置早好几分钟，而 next_reset_at 只认重置那一刻。
+    worlds.tick_warn()
+
     local next_reset = worlds.next_reset_at()
     if next_reset and tick >= next_reset then
         worlds.tick_check()
