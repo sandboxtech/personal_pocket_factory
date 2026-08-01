@@ -7,59 +7,26 @@ require('scripts.commands')
 require('scripts.ships')          -- 飞船子系统：模块内部已在顶层订阅 on_surface_created
 require('scripts.world_terrain')   -- 公共世界地貌斑块：模块内部已在顶层订阅 on_chunk_generated
 
-local constants = require('scripts.constants')
+-- 初始化那一套步骤全部搬进了 scripts/bootstrap.lua（三个调用方共用），
+-- 所以这里只剩两个真正用得到的模块：涂砖的事件订阅，和初始化入口。
 local events = require('scripts.events')
-local worlds = require('scripts.worlds')
-local players = require('scripts.players')
 local ring = require('scripts.ring')
-local pockets = require('scripts.pockets')
-local ships = require('scripts.ships')
+local bootstrap = require('scripts.bootstrap')
 
 -- 区块生成时涂砖。走 events 总线而不是直接 script.on_event，避免和别处的订阅互相覆盖。
 events.on(defines.events.on_chunk_generated, events.safe('chunk', ring.on_chunk_generated))
 
--- 解锁星图上的全部传送点。
--- 注意 unlock_space_location 和 create_surface 是【两件事】：
--- 前者只让星图上的点变成可见可选，后者才真的把 surface 建出来。
--- 本场景两件都做：surface 由 worlds.ensure_surfaces() 显式建出，传送点由这里解锁。
--- 幂等：已解锁的地点再解锁一次没有副作用。
---
--- 【遍历 prototypes.space_location，而不是只遍历 PUBLIC_PLANETS】：
--- 星图上的地点不止五个公共星球，还有 solar-system-edge 和 shattered-planet。
--- 只解锁五个星球的话，普罗米修斯瓶（唯一来源是破碎星球）永远拿不到，
--- 而普罗米修斯经验是决定环宽的 12 项之一 —— 等于有一项经验被永久锁死，
--- 玩家怎么攒都差这一项。空间位置全解锁才和「12 种瓶子都要集齐」这个核心设定自洽。
-local function unlock_all_space_locations()
-    local force = game.forces.player
-    for name in pairs(prototypes.space_location) do
-        force.unlock_space_location(name)
-    end
-end
-
 -- 第一次运行本场景时触发。
+-- 【这两个事件和 /pw-repair 跑的是同一套步骤】，全部在 scripts/bootstrap.lua 里。
+-- 抄三份的话，往后加一步就必然漏掉一两处，而漏掉的那处只在升级上来的老存档上出问题。
 script.on_init(function()
-    constants.ensure_defaults()
-    players.setup_perm_group()
-    unlock_all_space_locations()
-    ships.enforce_lock()        -- 禁用原生建船按钮，UI 是唯一入口
-
-    worlds.ensure_surfaces()   -- 把五个星球的 surface 显式建出来，不再等玩家开船降落
-    for _, name in ipairs(constants.PUBLIC_PLANETS) do
-        local surface = game.surfaces[name]
-        if surface then worlds.apply_bounds(surface) end
-    end
-    worlds.schedule_all(true)  -- 首次排期：把五个世界的重置时刻均匀铺开
+    bootstrap.run(true)   -- 新开局：把五个世界的重置时刻均匀铺开
 end)
 
 -- 场景脚本变化后加载老存档时触发：补齐新增的默认字段，保证平滑升级。
+-- 【注意它不是万能的】：这个事件只在 mod 列表/版本变化时触发，
+-- 用 game.reload_script() 热替换脚本时【不会】触发（那条路靠 tick.lua 里
+-- 每分钟一次的 ensure_defaults 兜底，以及管理员手动执行 /pw-repair）。
 script.on_configuration_changed(function()
-    constants.ensure_defaults()
-    players.setup_perm_group()
-    unlock_all_space_locations()
-    ships.enforce_lock()
-    worlds.ensure_surfaces()
-    worlds.schedule_all(false) -- 已排期的世界保持原计划，只给新增的补排
-    -- 把已存在的戴森环全部重新 ensure 一遍，补齐半成品环缺失的收货箱阵。
-    -- 老存档升级正是这类修复该发生的时机：玩家不用重连，加载完就已经是修好的。
-    pockets.repair_all()
+    bootstrap.run(false)  -- 已排期的世界保持原计划，只给新增的补排
 end)

@@ -1,5 +1,9 @@
 -- 管理员指令。全部注册在这里，方便一眼看全。
 local pockets = require('scripts.pockets')
+local constants = require('scripts.constants')
+-- bootstrap 里 require 的那几个模块（players/worlds/ships/pockets/constants）
+-- 没有一个反向 require commands，顶层 require 不成环。
+local bootstrap = require('scripts.bootstrap')
 -- gui.config 只 require constants 和 gui.popup，两者都不反向依赖 commands，顶层 require 不成环。
 local config_gui = require('scripts.gui.config')
 
@@ -146,6 +150,57 @@ commands.add_command('ring-delete-all', {'pw.cmd-ring-delete-all-help'}, functio
     local deleted = pockets.delete_all_rings()
     local who = caller and caller.name or {'pw.console-label'}
     game.print({'pw.cmd-ring-delete-all-done', deleted, who})
+end)
+
+-- /pw-repair
+--
+-- 幂等地把世界重新弄成「它应该有的样子」：补齐缺失的配置默认值、重建权限组、
+-- 解锁星图全部地点、锁回原生建船按钮、补建缺失的公共世界 surface、
+-- 把每颗星球的地图设置还原到原型状态再叠加矿脉倍率、把每条已存在的戴森环重新 ensure 一遍。
+--
+-- 【为什么需要这条指令】：这些步骤平时挂在 on_init 和 on_configuration_changed 上，
+-- 但本项目的实际更新方式是「只替换 scenario 目录里的 lua 文件，再 game.reload_script()」——
+-- reload_script 重新加载脚本、重新注册事件，却【不触发这两个事件中的任何一个】。
+-- 于是新版本新增的字段、新增的初始化步骤全都不会跑，症状是静默的功能缺失
+-- （典型：新玩家一件起手物资都拿不到，因为 storage.starter_items 是 nil）。
+--
+-- 不需要 confirm：每一步都是幂等的补齐动作，不删任何东西、不覆盖任何管理员改过的值。
+-- 想把改乱的参数推回默认值是另一回事，那条路是 /pw-reset-config，它要 confirm。
+commands.add_command('pw-repair', {'pw.cmd-repair-help'}, function(command)
+    local caller, reply = admin_gate(command)
+    if not reply then return end
+
+    local result = bootstrap.run(false)   -- false：绝不重排已有世界的重置时刻
+    reply({'pw.cmd-repair-done', result.rings, result.planets})
+
+    -- 全服播报：修复会顺手改动所有人的环（补收货箱、改列表里的显示名），
+    -- 别人正好在场时该知道这是管理员干的，而不是自己遇到了什么灵异现象。
+    local who = caller and caller.name or {'pw.console-label'}
+    game.print({'pw.cmd-repair-broadcast', who})
+end)
+
+-- /pw-reset-config [confirm]
+--
+-- 把【所有可调参数】推回默认值。玩家进度（经验、体力、戴森环、飞船、排期）一律不动 ——
+-- 清空名单严格取自 constants.TUNABLES / TUNABLE_TABLES 两张表，运行时状态不在其中。
+--
+-- 要 confirm，而 /pw-repair 不要：这条会【覆盖】管理员自己调过的每一个值，
+-- 是真正会丢东西的操作（丢的是调参，不是存档）。不加参数只打印预览。
+commands.add_command('pw-reset-config', {'pw.cmd-reset-config-help'}, function(command)
+    local caller, reply = admin_gate(command)
+    if not reply then return end
+
+    local arg = command.parameter and string.match(command.parameter, '^%s*(%S*)')
+    if arg ~= 'confirm' then
+        -- 预览先报「有几项和默认值不同」——管理员真正想知道的是"这一下会改掉多少东西"，
+        -- 而不是"总共有多少项配置"。两个数一起给，差值本身就说明了影响面。
+        reply({'pw.cmd-reset-config-preview', constants.diverged_count(), constants.tunable_count()})
+        return
+    end
+
+    local n = constants.reset_tunables()
+    local who = caller and caller.name or {'pw.console-label'}
+    game.print({'pw.cmd-reset-config-done', n, who})
 end)
 
 return M

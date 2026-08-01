@@ -125,6 +125,10 @@
 | `/pw-config` | 打开参数窗口：所有可热改的值、改完何时生效、各自什么意思 |
 | `/ring-delete <玩家名>` | 删掉某人的戴森环（经验不受影响） |
 | `/ring-delete-all [confirm]` | 重置全服戴森环。不加参数只看预览 |
+| `/pw-repair` | 修复：补齐缺失的配置、重建权限组、补建世界、校准所有环。幂等，随时可执行 |
+| `/pw-reset-config [confirm]` | 把所有参数推回默认值（玩家进度不动）。不加参数只看预览 |
+
+**热更新脚本后请执行一次 `/pw-repair`**：`game.reload_script()` 不触发 `on_init` / `on_configuration_changed`，新版本新增的配置字段和初始化步骤不会自动跑。
 
 新玩家的起手物资也可以改：`/sc storage.starter_items = {{name='iron-plate',count=500}}`，`/pw-config` 里能看到当前发的是什么。
 

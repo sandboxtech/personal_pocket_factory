@@ -175,6 +175,10 @@ function M.ensure_defaults()
         if storage[item.key] == nil then storage[item.key] = item.default end
     end
 
+    -- 【注意】ensure_defaults 只补【缺失】的字段，绝不覆盖已有值 —— 这是它能被
+    -- 每分钟无脑调一遍的前提（见 tick.lua）。想把改乱的参数推回默认值是另一件事，
+    -- 走 M.reset_tunables()，那条路是显式的、要管理员打 confirm 的。
+
     -- ══ 体力双池（可领取池 pending 按 tick 存 + 体力池 balance 按点存） ══
     storage.stamina = storage.stamina or {}
     -- 上限直接配点数，不再按小时换算。
@@ -348,6 +352,49 @@ function M.ensure_defaults()
     -- （比如戴森环精确宽度、经验贡献分项、其他玩家的戴森环列表）。见 scripts/util.lua 的 is_veteran。
 
     -- ══ 调试 ══
+end
+
+-- 把【所有可调参数】推回默认值。/pw-reset-config 的实现。
+--
+-- 做法是「先全部清空，再走一遍 ensure_defaults」，而不是逐项赋默认值：
+-- 标量的默认值在 M.TUNABLES 里，表的默认值写在 ensure_defaults 函数体内
+-- （结构各不相同、体积也大，登记进 TUNABLES 反而更难读）。
+-- 清空之后 ensure_defaults 的 `== nil` 和 `or {...}` 两套写法会把两类一起补齐，
+-- 「默认值长什么样」始终只有一处定义，不会出现「重置出来的值和新开档不一样」。
+--
+-- 【只碰配置，绝不碰进度】：清空名单严格取自 TUNABLES / TUNABLE_TABLES 两张表，
+-- 玩家经验、体力、环状态、飞船登记、排期这些运行时字段不在名单里，一个都不会动。
+-- 加新配置项时记得登记进那两张表 —— 没登记的项在这里不会被重置，
+-- 在 /pw-config 里也不会显示，两个症状会一起出现，比只坏一个容易发现。
+function M.reset_tunables()
+    local n = 0
+    for _, item in ipairs(M.TUNABLES) do
+        storage[item.key] = nil
+        n = n + 1
+    end
+    for _, item in ipairs(M.TUNABLE_TABLES) do
+        storage[item.key] = nil
+        n = n + 1
+    end
+    M.ensure_defaults()
+    return n
+end
+
+-- 有几个标量参数当前值和默认值不同 —— 给 /pw-reset-config 的预览用，
+-- 让管理员在打 confirm 之前知道「这一下会改掉多少东西」。
+-- 表类型不比较：深比较要写一套递归、还要处理数组顺序，而它给出的信息
+-- （"world_patch_tiles 被人动过"）并不值这个复杂度。
+-- 可调参数总数（标量 + 表）。/pw-reset-config 的预览用。
+function M.tunable_count()
+    return #M.TUNABLES + #M.TUNABLE_TABLES
+end
+
+function M.diverged_count()
+    local n = 0
+    for _, item in ipairs(M.TUNABLES) do
+        if storage[item.key] ~= item.default then n = n + 1 end
+    end
+    return n
 end
 
 return M
