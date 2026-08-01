@@ -5,6 +5,9 @@
 **每人一条专属戴森环，永不重置，但一颗矿都没有。**
 **资源全在五个公共星球上，而那些星球隔一两个小时就整颗清空。**
 **吃科技瓶，增加自己的戴森环长度**
+
+> 交流群 **293280221** ｜ 项目地址 <https://github.com/sandboxtech/personal_pocket_factory>
+
 ---
 
 ## 戴森环
@@ -122,3 +125,12 @@
 支持 11 种语言，跟随客户端语言自动切换：简体中文、繁體中文、English、日本語、한국어、Русский、Deutsch、Français、Español、Português (BR)、Polski。
 
 开发者文档见 [PROJECT.md](PROJECT.md)。
+
+---
+
+## 交流与反馈
+
+- **QQ 群**：293280221
+- **项目地址**：<https://github.com/sandboxtech/personal_pocket_factory>
+
+玩法问题、bug、想加的功能，群里说或者去 GitHub 开 issue 都行。
