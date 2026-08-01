@@ -52,20 +52,21 @@ end
 
 -- 半宽（tile）。环以原点为中心向两侧对称生长，每升一级两侧各外推 per_level。
 --
--- level_offset 是【起征点】：集齐 12 种瓶子（各至少 1 点）就是 12 级，
--- 取 offset = 10 让这一刻的半宽正好落在下限 base_half_width 上，
--- 也就是「集齐 12 种」才是真正的起跑线，此后每 +1 级两侧各外推 per_level。
+-- level_bonus 是【白送的级数】：半宽 = per_level × (等级 + level_bonus)，
+-- 配置 (32, 16, 2) 即【宽度 = 32 × (等级和 + 2)】。
+-- 取 2 让等级 0（一点经验都没攒）时宽度正好是下限 64，起步宽度和"还没开始"这个状态对上。
 --
--- 【这套参数是为了让改用位数计级之后实际环宽一点不变】：
---   旧：L = Σ floor(log10)，   半宽 = 32 + 16L
---   新：L' = Σ 位数 = L + 12， 半宽 = max(32, 16 × (L' − 10)) = 32 + 16L
--- 逐点相等，tests/test_geometry.lua 里有 L = 0..72 的全覆盖对照。
--- （只在 12 种都攒过时严格相等；缺瓶时新公式更严，那正是"必须集齐"这条设计的本意。）
+-- 【曾经写成减法（等级 − 10），那是个真实的设计缺陷】：
+-- 那组参数是为了让改用十进制位数计级之后宽度和之前逐点相同而反推出来的，
+-- 数值上确实做到了，但配上下限 64 的后果是【等级 0 到 12 宽度全都是 64】——
+-- 集齐 12 种科技瓶一格都不涨。而"从第一点经验起就看得见进展"正是把等级
+-- 改成位数的全部理由，那个偏移把这个理由整个抵消了。
+-- 教训：改公式时只验证"数值没变"不够，还要检查【新定义下这条曲线本身还合不合理】。
 --
--- 必须夹下限，绝不能返回 0 或负数：半宽为负会让 tile_at 把整条环判成 void，
--- 玩家会掉进一个一格地板都没有的世界。
-function M.half_width(level, base_half_width, per_level, level_offset)
-    local grown = per_level * (level - (level_offset or 0))
+-- 仍然夹下限，但它现在只是脏数据的兜底（等级 >= 0 时永远不会触发）：
+-- 半宽为负会让 tile_at 把整条环判成 void，玩家掉进一个一格地板都没有的世界。
+function M.half_width(level, base_half_width, per_level, level_bonus)
+    local grown = per_level * (level + (level_bonus or 0))
     if grown < base_half_width then return base_half_width end
     return grown
 end

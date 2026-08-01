@@ -17,6 +17,8 @@
 -- 玩家走正常复活流程回到自己的环），这条依赖边随那段逻辑一起消失了。
 local constants = require('scripts.constants')
 local events = require('scripts.events')
+-- ring 只依赖 constants 和 geometry，两者都不反向依赖 ships，顶层 require 不成环。
+local ring = require('scripts.ring')
 
 local M = {}
 
@@ -66,6 +68,23 @@ function M.left_ticks(record)
     return record.created + M.life_ticks() - game.tick
 end
 
+-- 这艘船该有多宽：和主人的戴森环等级挂钩，公式是 per_level × (等级 + bonus)，
+-- 配置 (16, 4) 即【宽度 = 16 × (4 + 等级)】。无主飞船按等级 0 算。
+--
+-- 【为什么船也跟着等级长】：船和环是同一个人的两处资产，只有环会随经验变宽的话，
+-- 船就成了一个和成长完全脱钩的固定盒子 —— 后期玩家的船和新人的船一样大，
+-- 而他要往船上塞的东西多得多。挂上等级之后，"攒经验"这件事同时喂两条线。
+--
+-- 高度不跟等级走，仍用固定的 storage.ship_height：太空平台是纵向航行的，
+-- 高度对应"航程上的纵深"，横向才是玩家真正铺东西的方向。两个方向都膨胀的话
+-- 存档体积是平方级增长，而存档体积是本项目的头号约束。
+function M.width_for(owner_name)
+    local per_level = storage.ship_width_per_level or 16
+    local bonus = storage.ship_width_bonus or 4
+    local level = owner_name and ring.level_of(owner_name) or 0
+    return per_level * (level + bonus)
+end
+
 -- 给飞船 surface 套上引擎级硬边界，和戴森环同一个思路：能让引擎不生成的区块，
 -- 就不要靠脚本涂砖去挡。存档体积是本项目的头号约束。
 --
@@ -73,12 +92,12 @@ end
 -- 而边界失败顶多是存档大一点，绝不该连累"船已经造出来了"这个事实。
 -- 这条规矩是修 set_surface_hidden 那个 bug 换来的（见 pockets.hide_surface 的注释）：
 -- 未验证的、非关键的调用绝不允许排在关键步骤前面。
-local function apply_bounds(platform)
+local function apply_bounds(platform, owner_name)
     local surface = platform.surface
     if not (surface and surface.valid) then return end
     local ok, err = pcall(function()
         local mgs = surface.map_gen_settings
-        mgs.width = storage.ship_width or 256
+        mgs.width = M.width_for(owner_name)
         mgs.height = storage.ship_height or 512
         surface.map_gen_settings = mgs
     end)
@@ -144,7 +163,7 @@ function M.create(player)
     end
 
     records()[platform.index] = {owner = player.name, created = game.tick}
-    apply_bounds(platform)   -- 此刻多半还没有 surface，真正生效的是 on_surface_created 里那次
+    apply_bounds(platform, player.name)   -- 此刻多半还没有 surface，真正生效的是 on_surface_created 里那次
 
     game.print({'pw.ship-created', player.name})
     return platform
@@ -173,7 +192,7 @@ local function on_platform_surface(surface)
         records()[platform.index] = {owner = nil, created = game.tick}
     end
 
-    apply_bounds(platform)
+    apply_bounds(platform, records()[platform.index].owner)
 end
 
 events.on(defines.events.on_surface_created, function(event)
