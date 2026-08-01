@@ -58,13 +58,10 @@ end
 
 -- 新玩家的起手物资。口袋世界没有资源，不给起手就真的寸步难行。
 local STARTER_ITEMS = {
-    {name = 'iron-plate', count = 100},
-    {name = 'copper-plate', count = 100},
-    {name = 'stone-furnace', count = 4},
-    {name = 'burner-mining-drill', count = 2},
-    {name = 'wood', count = 20},
-    {name = 'pistol', count = 1},
-    {name = 'firearm-magazine', count = 20},
+    {name = 'iron-plate', count = 500},
+    {name = 'copper-plate', count = 200},
+    {name = 'stone', count = 100},
+    {name = 'wood', count = 100},
 }
 
 local function grant_starter(player)

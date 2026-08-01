@@ -250,8 +250,26 @@ local function on_built(event)
                     -- 摧毁箱子本身不会丢失货物——货物仍留在那份共享库存里，
                     -- 所以这里不需要、也不应该在摧毁前搬运任何物品。
                     old_chest.destroy()
+
                     local old_player = game.players[player_index]
                     if old_player then
+                        -- 把旧箱子【退还】给玩家，而不是让它凭空消失。
+                        --
+                        -- 「同时只能有一个投递口」是位置上的限制，不该顺带变成材料上的惩罚：
+                        -- 玩家每挪一次投递口就白烧一个箱子，会让人不敢随便挪，
+                        -- 而"挪到更好的矿脉旁边"恰恰是这条规则想鼓励的决策。
+                        --
+                        -- 背包塞不下时 insert 返回 0，剩下的直接掉在脚边，绝不静默吞掉。
+                        -- spill_item_stack 需要 surface + position，用新箱子的位置（玩家就站在旁边）。
+                        local inserted = old_player.insert{name = LINKED, count = 1}
+                        if inserted < 1 then
+                            chest.surface.spill_item_stack{
+                                position = chest.position,
+                                stack = {name = LINKED, count = 1},
+                                enable_looted = true,
+                                force = old_player.force,
+                            }
+                        end
                         old_player.print({'pw.dropoff-replaced', util.surface_label(old.surface)})
                     end
                 end
