@@ -1,7 +1,84 @@
 -- 管理员指令。全部注册在这里，方便一眼看全。
+local constants = require('scripts.constants')
 local pockets = require('scripts.pockets')
 
 local M = {}
+
+-- 只给调用者看的回复。从服务器控制台执行时没有 caller，退回 game.print。
+local function replier(command)
+    local caller = command.player_index and game.players[command.player_index]
+    return caller, function(msg)
+        if caller then caller.print(msg) else game.print(msg) end
+    end
+end
+
+-- 管理员闸门。返回 caller 和 reply，非管理员返回 nil。
+-- 单人游戏从控制台执行时 caller 为 nil，一律放行（那本来就是主机自己）。
+local function admin_gate(command)
+    local caller, reply = replier(command)
+    if caller and not caller.admin then
+        caller.print({'pw.cmd-admin-only'})
+        return nil
+    end
+    return caller, reply
+end
+
+-- 把一个 storage 值渲染成【能直接粘回控制台】的 Lua 字面量。
+-- 字符串要带引号、布尔要是 true/false —— 少了这层，管理员照着显示的值抄一遍
+-- 会写出 storage.ship_home_planet = nauvis 这种把星球名当全局变量读的语句（值是 nil）。
+local function literal(value)
+    if type(value) == 'string' then return "'" .. value .. "'" end
+    return tostring(value)
+end
+
+-- /pw-config [关键词]
+--
+-- 列出所有可热改的参数：当前值、一句话说明、以及照抄就能用的 /sc 语句。
+-- 数据源是 constants.TUNABLES / TUNABLE_TABLES —— 和 ensure_defaults 读的是同一张表，
+-- 所以这里列出来的东西不可能和实际生效的默认值脱节。
+--
+-- 带关键词时只显示字段名或分组名包含该词的项。27 个标量一次全刷出来对聊天框是个负担，
+-- 而管理员多半是冲着某一类来的（"体力上限多少来着"），给个过滤比分页实在。
+commands.add_command('pw-config', {'pw.cmd-config-help'}, function(command)
+    local caller, reply = admin_gate(command)
+    if not reply then return end
+
+    local filter = command.parameter and string.lower(string.match(command.parameter, '^%s*(%S*)') or '')
+    if filter == '' then filter = nil end
+
+    reply({'pw.cmd-config-head'})
+
+    local shown = 0
+    for _, group in ipairs(constants.TUNABLE_GROUPS) do
+        local rows = {}
+
+        for _, item in ipairs(constants.TUNABLES) do
+            if item.group == group and (not filter or string.find(string.lower(item.key), filter, 1, true)) then
+                rows[#rows + 1] = {'pw.cmd-config-row', item.key,
+                    literal(storage[item.key]), {'pw.cfg-' .. string.gsub(item.key, '_', '-')}}
+            end
+        end
+        for _, item in ipairs(constants.TUNABLE_TABLES) do
+            if item.group == group and (not filter or string.find(string.lower(item.key), filter, 1, true)) then
+                rows[#rows + 1] = {'pw.cmd-config-row-table', item.key, item.example,
+                    {'pw.cfg-' .. string.gsub(item.key, '_', '-')}}
+            end
+        end
+
+        -- 组标题只在这一组真有内容时才打，否则加了关键词之后会刷出一串空组
+        if #rows > 0 then
+            reply({'pw.cmd-config-group', {'pw.cfg-group-' .. group}})
+            for _, row in ipairs(rows) do
+                reply(row)
+                shown = shown + 1
+            end
+        end
+    end
+
+    if shown == 0 then
+        reply({'pw.cmd-config-none', filter or ''})
+    end
+end)
 
 -- /ring-delete <玩家名>
 --

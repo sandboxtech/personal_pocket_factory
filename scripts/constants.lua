@@ -38,6 +38,60 @@ M.CHEST_ROW_TO = 2             -- 到这里（闭区间）
 -- （外移之前原点被箱子占着，落点只能挪到箱阵外侧去。）
 M.RING_SPAWN = {0, 0}
 
+-- ══ 可热改的配置项清单 ══
+--
+-- 【这张表是 ensure_defaults 的数据源，也是 /pw-config 指令的数据源】。
+-- 一处定义、两处消费，所以「默认值」和「管理员看到的说明」不可能各说各话——
+-- 分开维护的话，改了默认值忘了改文档是迟早的事。
+--
+-- 判空一律用 `== nil` 而不是 `or`：`storage.x = storage.x or 默认值` 对布尔 false 是错的
+-- （false 会被当成「没设过」而被默认值覆盖，于是 false 永远存不住）。
+-- 老写法为此给每个布尔项单独写了 if 分支，改成 == nil 之后那些特例全部消失。
+--
+-- 说明文案的 locale key 由字段名派生：pw.cfg-<字段名，下划线换短横>，两种语言各一份。
+-- group 只决定 /pw-config 里的分组显示顺序，不影响任何行为。
+M.TUNABLE_GROUPS = {'stamina', 'ring', 'lifecycle', 'world', 'ship', 'cycle', 'tech', 'misc'}
+
+M.TUNABLES = {
+    {key = 'stamina_ticks_per_point', default = 60, group = 'stamina'},
+    {key = 'stamina_pending_cap', default = 100000, group = 'stamina'},
+    {key = 'stamina_balance_cap', default = 10000000, group = 'stamina'},
+    {key = 'stamina_initial_multiple', default = 0, group = 'stamina'},
+    {key = 'ring_height', default = 128, group = 'ring'},
+    {key = 'ring_concrete_height', default = 64, group = 'ring'},
+    {key = 'ring_base_half_width', default = 32, group = 'ring'},
+    {key = 'ring_per_level', default = 16, group = 'ring'},
+    {key = 'ring_level_offset', default = 10, group = 'ring'},
+    {key = 'ring_public_hours', default = 30, group = 'lifecycle'},
+    {key = 'ring_delete_hours', default = 50, group = 'lifecycle'},
+    {key = 'ring_min_hours', default = 1, group = 'lifecycle'},
+    {key = 'public_size', default = 2048, group = 'world'},
+    {key = 'world_reset_offset_minutes', default = 10, group = 'world'},
+    {key = 'ship_life_hours', default = 50, group = 'ship'},
+    {key = 'ship_width', default = 256, group = 'ship'},
+    {key = 'ship_height', default = 512, group = 'ship'},
+    {key = 'ship_home_planet', default = 'nauvis', group = 'ship'},
+    {key = 'ship_lock_native_creation', default = true, group = 'ship'},
+    {key = 'cycle_minutes', default = 60, group = 'cycle'},
+    {key = 'cycle_phase_minutes', default = 5, group = 'cycle'},
+    {key = 'cycle_base_offset_minutes', default = 2, group = 'cycle'},
+    {key = 'hud_refresh_ticks', default = 3600, group = 'cycle'},
+    {key = 'tech_loss_k', default = 1, group = 'tech'},
+    {key = 'detail_hours', default = 6, group = 'misc'},
+    {key = 'block_blueprint_library', default = false, group = 'misc'},
+    {key = 'debug', default = false, group = 'misc'},
+}
+
+-- 表类型的配置项：默认值太大、结构也各不相同，仍然在 ensure_defaults 里就地定义，
+-- 这里只登记「它存在、归哪一组、怎么改」，供 /pw-config 一并列出。
+-- example 是一条能直接粘进控制台的示例——表字段没法像标量那样直接赋一个数字。
+M.TUNABLE_TABLES = {
+    {key = 'world_reset_minutes', group = 'world', example = '/sc storage.world_reset_minutes.nauvis = 30'},
+    {key = 'quality_exp', group = 'misc', example = '/sc storage.quality_exp.legendary = 12'},
+    {key = 'ring_tiles', group = 'ring', example = '/sc storage.ring_tiles.grown = \'refined-concrete\''},
+    {key = 'world_patch_tiles', group = 'world', example = '/sc storage.world_patch_tiles.nauvis = {\'grass-1\',\'sand-1\'}'},
+}
+
 -- 戴森环的地图生成设置。
 --
 -- 关键点一：height 是【引擎级硬边界】，|y| >= height/2 的区块根本不生成，零成本零代码。
@@ -88,17 +142,23 @@ function M.ensure_exp_table(player_name)
 end
 
 function M.ensure_defaults()
+    -- 27 个标量配置项全部由 M.TUNABLES 那张表驱动，这里不再逐行写 storage.x = storage.x or 默认值。
+    -- 好处不只是短：/pw-config 指令读的是同一张表，「默认值」和「管理员看到的说明」
+    -- 从此没有分头维护、各说各话的可能。
+    --
+    -- 判空用 == nil 而不是 or：后者对布尔 false 是错的（false 会被当成「没设过」
+    -- 而被默认值覆盖，于是 false 永远存不住）。老写法为此给每个布尔项单独写了 if 分支。
+    for _, item in ipairs(M.TUNABLES) do
+        if storage[item.key] == nil then storage[item.key] = item.default end
+    end
+
     -- ══ 体力双池（可领取池 pending 按 tick 存 + 体力池 balance 按点存） ══
     storage.stamina = storage.stamina or {}
-    storage.stamina_ticks_per_point = storage.stamina_ticks_per_point or 60     -- 每点体力 = 1 秒
     -- 上限直接配点数，不再按小时换算。
-    storage.stamina_pending_cap = storage.stamina_pending_cap or 100000       -- 可领取池上限（点）
-    storage.stamina_balance_cap = storage.stamina_balance_cap or 10000000     -- 体力池上限（点）
     -- 新玩家初始体力池 = 可领取上限（stamina_pending_cap）的多少倍。
     -- 默认 0：不白送启动体力，所有人都从"攒"开始，第一次兑换就得先等体力回满一点。
     -- 写成派生倍数而不是写死的点数，将来想开个新手礼包时调 pending_cap 也不用两处同步改。
     -- 注意 Lua 里 0 是真值，所以 `storage.x or 0` 这个写法对 0 是正确的（不会被当成"没设过"）。
-    storage.stamina_initial_multiple = storage.stamina_initial_multiple or 0
 
     -- ══ 经验（12 种，按科技瓶短名分列） ══
     storage.exp = storage.exp or {}
@@ -109,15 +169,10 @@ function M.ensure_defaults()
         {normal = 1, uncommon = 3, rare = 5, epic = 7, legendary = 9}
 
     -- ══ 戴森环形状 ══
-    storage.ring_height = storage.ring_height or 128               -- 环带总高，同时是 map_gen 的 height
-    storage.ring_concrete_height = storage.ring_concrete_height or 64  -- 中间可建带，其余均分给上下的临空带
-    storage.ring_base_half_width = storage.ring_base_half_width or 32  -- L=0 时的半宽
-    storage.ring_per_level = storage.ring_per_level or 16          -- 每升一级两侧各外推多少 tile
     -- 等级的【起征点】。等级是 12 项经验的十进制位数之和，集齐 12 种（各至少 1 点）就是 12 级；
     -- 取 10 让那一刻的半宽正好等于下限 ring_base_half_width，即「集齐 12 种」才是起跑线。
     -- 换句话说宽 = 32 × (等级 − 10)，下限 64。这组数字是为了让改用位数计级之后
     -- 实际环宽和之前逐点相同，推导见 scripts/geometry.lua 的 half_width。
-    storage.ring_level_offset = storage.ring_level_offset or 10
 
     -- 语义砖名 → 实际砖原型名。geometry.lua 是纯函数、不读 storage，
     -- 所以它只返回语义值，由 ring.lua 查这张表映射成真实砖名。
@@ -136,14 +191,10 @@ function M.ensure_defaults()
     -- ══ 戴森环离线生命周期 ══
     -- 两个阈值都是【每次扫描现读】的，绝不缓存成到期 tick，这样改配置能立即对全体生效。
     storage.ring_state = storage.ring_state or {}                  -- [玩家名] = 'private' / 'public'
-    storage.ring_public_hours = storage.ring_public_hours or 30    -- 离线多久后变公共（老玩家的固定上限）
-    storage.ring_delete_hours = storage.ring_delete_hours or 50    -- 离线多久后删表面（老玩家的固定上限）
     -- 新人的阈值按累计在线时长缩放（见 pockets.public_threshold / delete_threshold），
     -- 缩放结果不低于这个下限——避免 online_time = 0 的全新玩家一离线就立刻公共化。
-    storage.ring_min_hours = storage.ring_min_hours or 1
 
     -- ══ 公共世界 ══
-    storage.public_size = storage.public_size or 2048
     -- 每星球各自的重置周期（分钟）。周期长短即难度分层：
     -- nauvis 一小时一轮，是新人的练兵场；aquilo 五小时一轮，值得长线经营。
     -- 【按名字索引，不按下标】——constants.PUBLIC_PLANETS 的顺序是
@@ -153,7 +204,6 @@ function M.ensure_defaults()
         nauvis = 60, vulcanus = 120, fulgora = 180, gleba = 240, aquilo = 300,
     }
     -- 相邻星球的首次排期错开这么多分钟，避免两个世界同时重置。
-    storage.world_reset_offset_minutes = storage.world_reset_offset_minutes or 10
     storage.world_reset_at = storage.world_reset_at or {}
     storage.world_run = storage.world_run or {}
 
@@ -220,24 +270,14 @@ function M.ensure_defaults()
     -- 玩家仍然可以从火箭井原生造平台，那种船脚本没参与创建、不知道是谁的，
     -- 按玩家名做主键的话它在表里根本没有位置可放。详见 scripts/ships.lua 顶部注释。
     storage.ships = storage.ships or {}                      -- [平台index] = {owner=玩家名或nil, created=创建tick}
-    storage.ship_life_hours = storage.ship_life_hours or 50  -- 寿命（小时），到点先撤人再销毁
-    storage.ship_width = storage.ship_width or 256           -- 引擎级硬边界，和戴森环同一个思路
-    storage.ship_height = storage.ship_height or 512
-    storage.ship_home_planet = storage.ship_home_planet or 'nauvis'   -- 默认环绕哪颗星球
     -- 禁用原生的太空平台按钮，让 UI 成为建船的唯一入口。
     -- 这是归属制成立的前提：船必须都从 ships.create 出生，才谈得上"这是谁的船"。
     -- 起步包仍然要用火箭发上去，门槛一点没降 —— 换掉的只是"谁来按下创建"这一步。
     -- 设成 false 就恢复原版行为（那样会重新出现无主飞船，见 scripts/ships.lua）。
-    if storage.ship_lock_native_creation == nil then
-        storage.ship_lock_native_creation = true
-    end
 
     -- ══ 相位调度器（大类周期任务：科技丢失、戴森环生命周期……） ══
     -- 用「显式相位」代替 v1 互质质数取模：周期和错开程度两个旋钮独立可调，
     -- 详细设计见 scripts/tick.lua 顶部注释。
-    storage.cycle_minutes = storage.cycle_minutes or 60             -- 每大类任务的周期
-    storage.cycle_phase_minutes = storage.cycle_phase_minutes or 5  -- 各类之间的相位间隔
-    storage.cycle_base_offset_minutes = storage.cycle_base_offset_minutes or 2
         -- 周期任务的基础偏移。星球重置占用 mod 60 的 0/10/20/30/40 分，
         -- 加 2 分钟偏移后周期任务落在 2/7/12 分，和它们全都错开。
     storage.cycle_next_at = storage.cycle_next_at or {}             -- [任务key] = 下次触发的 tick
@@ -245,25 +285,18 @@ function M.ensure_defaults()
     -- 在控制阶段加载时就要确定，此时 storage 尚不可用，故实际使用的是字面量 3600（1 分钟），
     -- 修改此字段对轮询频率无影响。
     storage.scheduler_interval_ticks = storage.scheduler_interval_ticks or 3600
-    storage.hud_refresh_ticks = storage.hud_refresh_ticks or 3600   -- HUD 刷新间隔（tick）
 
     -- ══ 科技丢失：P = k × 该科技的瓶子种数 / 100 ══
-    storage.tech_loss_k = storage.tech_loss_k or 1
 
     -- ══ 权限：默认【不禁用任何东西】，包括蓝图库 ══
     -- v1 禁蓝图的理由（重置后 Ctrl+V 一秒恢复布局）在本版已不成立：
     -- 重置的是公共世界，而玩家的产线在戴森环里，本来就不会被重置。
-    if storage.block_blueprint_library == nil then
-        storage.block_blueprint_library = false
-    end
 
     -- ══ 分级披露 ══
     -- 累计在线满这么多小时，才在 GUI 上多看到那些"能优化但不影响上手"的详细数字
     -- （比如戴森环精确宽度、经验贡献分项、其他玩家的戴森环列表）。见 scripts/util.lua 的 is_veteran。
-    storage.detail_hours = storage.detail_hours or 6
 
     -- ══ 调试 ══
-    storage.debug = storage.debug or false
 end
 
 return M

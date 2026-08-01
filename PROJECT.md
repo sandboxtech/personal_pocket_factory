@@ -54,7 +54,14 @@ v1 的口袋世界宽高都用 `MapGenSettings.width/height` 这种引擎级硬�
 ### 四、12 种经验分开记账
 
 12 种科技瓶（`geometry.SCIENCE_PACKS`）各自独立记一份经验，戴森环等级
-`L = Σᵢ floor(log10(expᵢ))`，i 遍历 12 项，半宽 `= 32 + 16 × L`。
+`L = Σᵢ 位数(expᵢ)`，位数即 `floor(log10(x)) + 1`（1~9 算 1 位），i 遍历 12 项；
+半宽 `= max(32, 16 × (L − 10))`，即宽度 `= 32 × (L − 10)`，下限 64。
+
+用位数而不是纯 `floor(log10)`，是为了让【攒到第 1 点就有第 1 级】：纯对数下
+1~9 点一律贡献 0，玩家攒完第一瓶经验界面纹丝不动，看起来像没生效。
+起征点 10 是配套算出来的 —— 集齐 12 种（各至少 1 点）恰好 12 级，
+此时半宽正好落在下限 32 上，实际环宽和改公式之前逐点相同
+（`tests/test_geometry.lua` 里有 L = 0..72 的全覆盖对照）。
 
 为什么每项各自 floor 再相加，而不是先加起来最后 floor 一次：两者结果真的不同，两种瓶子
 各攒到 99 点时，旧式 `floor(log10(99) × 2) = 3`，新式 `1 + 1 = 2`。差别在于旧式允许多个
@@ -270,11 +277,22 @@ on_player_joined_game:
   不是顶层字段。
 
 - 改完 `.lua` 跑一次语法检查：`luac -p control.lua scripts/*.lua scripts/gui/*.lua`。
-  改了 `geometry.lua` 或任何几何/等级数学，跑 `lua5.4 tests/test_geometry.lua`（当前 45/45）。
+  改了 `geometry.lua` 或任何几何/等级数学，跑 `lua5.4 tests/test_geometry.lua`（当前 123/123）。
 
-- locale 改动后跑一次 key 覆盖率检查，确认两种语言的 `[pw]` 段键集合完全一致：
-  `comm -3 <(grep -oE '^[a-zA-Z0-9_-]+=' locale/zh-CN/locale.cfg | sort) <(grep -oE '^[a-zA-Z0-9_-]+=' locale/en/locale.cfg | sort)`。
-  空输出即两语言全覆盖。
+- **改完任何 `.lua` 或 locale，跑 `bash tests/run_all.sh`。** 五道检查各自堵的是别的
+  检查看不见的一类问题，缺一不可：
+
+  | 检查 | 堵住的问题 | 为什么别的检查抓不到 |
+  |---|---|---|
+  | `luac -p` | 语法错 | — |
+  | Lua 5.2 兼容 | `~` `//` `<<` `table.move` 等 5.3+ 写法 | 本机 luac 是 5.4，这些能过编译，进游戏才加载失败 |
+  | `check_globals.sh` | 读写未定义的全局 | 读不存在的全局在 Lua 里合法（值 nil），要跑到那一行才炸 |
+  | `check_api_args.py` | 引擎调用位置参数写反 | 语法完全合法；`set_surface_hidden(true, surface)` 就是这么漏掉的 |
+  | `check_locale.py` | 缺键/死键/占位符实参个数对不上 | 少传一个参数不报错，只在界面上显示成没替换的 `__3__` |
+
+- **新增可热改的配置项，只改 `constants.TUNABLES` 一处**，再补两条
+  `pw.cfg-<字段名，下划线换短横>` 的 locale 说明。`ensure_defaults` 和 `/pw-config`
+  读的是同一张表，不存在「改了默认值忘了改文档」这种事。
 
 ## 待验证清单
 
