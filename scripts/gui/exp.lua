@@ -25,7 +25,7 @@ function M.render(container, player)
     local table_data = exp.get(player.name)
 
     -- 新人只看进度条和"1234 / 10000"就够判断该去攒哪一项了；每项对等级的精确贡献
-    -- （log10 取整后的那个数）是给老玩家优化用的，新人不看这个也不影响上手。
+    -- （这一项的十进制位数）是给老玩家优化用的，新人不看这个也不影响上手。
     local veteran = util.is_veteran(player)
 
     container.add{type = 'label', caption = {'pw.exp-help'}}
@@ -34,10 +34,10 @@ function M.render(container, player)
     -- 老玩家多一列"贡献值"，新人只看图标/进度条/数量三列。
     local grid = container.add{type = 'table', name = 'pw_exp_table', column_count = veteran and 4 or 3}
 
-    -- contribution 必须和 geometry.ring_level 用同一个算法（每项各自 floor 再相加），
-    -- 否则这里显示的「合计」会跟真正的等级（ring.level_of，走 geometry.ring_level）对不上——
-    -- 旧代码在这里是「先加 log10 原始值、最后统一 floor 一次」，那是改公式之前的算法，
-    -- 两种瓶子各 99 点时旧代码会算出合计 3，但真实等级已经是 2，界面会自相矛盾。
+    -- contribution 必须和 geometry.ring_level 用同一个算法（每项各自取位数再相加），
+    -- 否则这里显示的「合计」会跟真正的等级（ring.level_of，走 geometry.ring_level）对不上。
+    -- 这两处曾经因为一个是 floor(log10)、一个是「先加后 floor」而自相矛盾过，
+    -- 改公式时【两边必须一起改】——它们没有共用同一个函数，只靠这条注释拴着。
     local sum = 0
     -- 还差多远才能再长一级：不能再用「全局的分数差」，因为新公式下 sum 恒等于 level（都是整数），
     -- level + 1 - sum 恒为 1，那条提示会失去意义。改成【找 12 项里离自己下一个数量级门槛最近的那项】，
@@ -46,7 +46,8 @@ function M.render(container, player)
     local min_remaining = nil
     for _, short in ipairs(geometry.SCIENCE_PACKS) do
         local amount = table_data[short] or 0
-        local contribution = amount >= 1 and math.floor(math.log(amount, 10)) or 0
+        -- 和 geometry.ring_level 同一个算法：十进制位数 = floor(log10) + 1，攒到 1 点就算 1 级。
+        local contribution = amount >= 1 and (math.floor(math.log(amount, 10)) + 1) or 0
         sum = sum + contribution
 
         local threshold = next_threshold(amount)

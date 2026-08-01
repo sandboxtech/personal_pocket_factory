@@ -18,8 +18,10 @@ function M.render(container, player)
     for _, e in ipairs(entries) do
         if e.take > 0 then
             any = true
+            -- 品质用 [quality=xxx] 富文本，不甩 'normal'/'legendary' 这种原型名当纯文本：
+            -- 那既没图标也不跟客户端语言翻译。和别处一样的规矩（见 util.surface_label 的注释）。
             container.add{type = 'label', caption = {'pw.convert-row',
-                '[item=' .. e.item .. ']', e.count, e.quality,
+                '[item=' .. e.item .. ']', e.count, '[quality=' .. e.quality .. ']',
                 e.take, util.readable(e.take * e.mult), e.points}}
         end
     end

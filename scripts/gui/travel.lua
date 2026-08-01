@@ -15,21 +15,21 @@ function M.show(player)
     -- 二、五个公共世界
     inner.add{type = 'label', caption = {'pw.travel-worlds-head'}}
 
-    -- 科技流失倒计时是"知道了能规划"的信息（赶在漏水前把要紧科技用上），
-    -- 新人先把"去哪个星球、多久重置"这两件事搞清楚就够了，这条只给老玩家看。
+    -- 科技漏水倒计时：【所有人都看得到】。
+    -- 它一度被归进"老玩家才看的细节"，但那个分类是错的——星球重置倒计时给所有人看，
+    -- 科技漏水是同一类东西：全服性的、有明确时刻的、看了能改变当下行动的事件
+    -- （赶在漏水前把要紧科技用掉）。新人不知道这件事会发生，才是真的会被打懵。
     --
-    -- 显示的是「距离下次科技流失还有多久」，不是丢失数量的期望值——
-    -- 后者（worlds.expected_losses）还留着给别处用，但对玩家来说「还剩多久」
-    -- 才是能直接规划行动的信息。调度器（Task 12）上线前 tech_loss_time_left
-    -- 恒返回 nil，这里退化显示「尚未排期」，不瞎编一个数字。
-    if util.is_veteran(player) then
-        local tech_left = worlds.tech_loss_time_left()
-        if tech_left then
-            local minutes = math.max(0, math.floor(tech_left / constants.min_to_tick))
-            inner.add{type = 'label', caption = {'pw.travel-tech-timer', minutes}}
-        else
-            inner.add{type = 'label', caption = {'pw.travel-tech-unscheduled'}}
-        end
+    -- 显示「还剩多久」而不是丢失数量的期望值（worlds.expected_losses 留着给别处用）：
+    -- 前者能直接换算成行动，后者只是个统计量。
+    -- 调度器还没排过第一轮时 tech_loss_time_left 返回 nil，退化显示「尚未排期」，
+    -- 不瞎编一个数字。
+    local tech_left = worlds.tech_loss_time_left()
+    if tech_left then
+        local minutes = math.max(0, math.floor(tech_left / constants.min_to_tick))
+        inner.add{type = 'label', caption = {'pw.travel-tech-timer', minutes}}
+    else
+        inner.add{type = 'label', caption = {'pw.travel-tech-unscheduled'}}
     end
 
     for _, name in ipairs(constants.PUBLIC_PLANETS) do

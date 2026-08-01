@@ -50,7 +50,8 @@ function M.half_width_of(player_name)
     return geometry.half_width(
         M.level_of(player_name),
         storage.ring_base_half_width or 32,
-        storage.ring_per_level or 16)
+        storage.ring_per_level or 16,
+        storage.ring_level_offset or 10)
 end
 
 -- 保证 [x_from, x_to) × [y_from, y_to) 这片区域内的区块都已生成。

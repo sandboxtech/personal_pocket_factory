@@ -266,13 +266,19 @@ function M.roll_tech_loss()
     for name, tech in pairs(game.forces.player.technologies) do
         local chance = M.loss_chance(tech)
         if chance > 0 and math.random() < chance then
+            -- 播报里用 [technology=名字] 富文本而不是裸科技名：
+            -- 裸名是内部标识（'productivity-module-3' 这种），既不跟客户端语言翻译，
+            -- 一次掉七八项时也是一大串没人读得下去的英文。图标一眼能认，鼠标悬停还有原生 tooltip。
+            -- 这个标签是引擎原生的，Factorio 自带 locale 里就在用（[technology=legendary-quality]）。
+            local icon = '[technology=' .. name .. ']'
             if M.can_downgrade(tech) then
                 local new_level = tech.level - 1
                 tech.level = new_level
-                downgraded[#downgraded + 1] = name .. ' Lv.' .. new_level
+                -- 降级必须带上退到第几级，只给个图标玩家不知道损失了多少
+                downgraded[#downgraded + 1] = icon .. ' Lv.' .. new_level
             elseif tech.researched then
                 tech.researched = false
-                lost[#lost + 1] = name
+                lost[#lost + 1] = icon
             end
         end
     end
@@ -284,12 +290,12 @@ end
 function M.tick_tech_loss()
     local lost, downgraded = M.roll_tech_loss()
     if #lost > 0 then
-        game.print({'pw.tech-lost', #lost, table.concat(lost, ', ')})
+        game.print({'pw.tech-lost', #lost, table.concat(lost, ' ')})
     end
     -- 降级单独播报：对玩家来说「某科技没了」和「某科技退了一级」是两件要分开应对的事，
     -- 混进同一条消息里会让人误以为无限科技被清零了。
     if #downgraded > 0 then
-        game.print({'pw.tech-downgraded', #downgraded, table.concat(downgraded, ', ')})
+        game.print({'pw.tech-downgraded', #downgraded, table.concat(downgraded, '  ')})
     end
     return #lost + #downgraded
 end

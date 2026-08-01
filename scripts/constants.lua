@@ -113,6 +113,11 @@ function M.ensure_defaults()
     storage.ring_concrete_height = storage.ring_concrete_height or 64  -- 中间可建带，其余均分给上下的临空带
     storage.ring_base_half_width = storage.ring_base_half_width or 32  -- L=0 时的半宽
     storage.ring_per_level = storage.ring_per_level or 16          -- 每升一级两侧各外推多少 tile
+    -- 等级的【起征点】。等级是 12 项经验的十进制位数之和，集齐 12 种（各至少 1 点）就是 12 级；
+    -- 取 10 让那一刻的半宽正好等于下限 ring_base_half_width，即「集齐 12 种」才是起跑线。
+    -- 换句话说宽 = 32 × (等级 − 10)，下限 64。这组数字是为了让改用位数计级之后
+    -- 实际环宽和之前逐点相同，推导见 scripts/geometry.lua 的 half_width。
+    storage.ring_level_offset = storage.ring_level_offset or 10
 
     -- 语义砖名 → 实际砖原型名。geometry.lua 是纯函数、不读 storage，
     -- 所以它只返回语义值，由 ring.lua 查这张表映射成真实砖名。

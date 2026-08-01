@@ -20,51 +20,66 @@ check('短名转物品名', geo.pack_item_name('automation'), 'automation-scienc
 check('短名转物品名(终局)', geo.pack_item_name('promethium'), 'promethium-science-pack')
 
 -- ══ ring_level ══
--- log10(0) 是负无穷、log10(1)=0，两个都必须夹到 0，否则等级会变成 -inf 或负数
+-- 等级 = 各项经验的【十进制位数】之和：1~9 算 1 位、10~99 算 2 位，以此类推。
+-- 也就是 floor(log10(x)) + 1，攒到 1 点就有 1 级，不用等到 10 点。
+-- amount < 1 的项贡献 0（log10(0) 是负无穷，不夹住等级会变成 -inf）。
 check('空表',            geo.ring_level({}), 0)
 check('经验为 0',        geo.ring_level({automation = 0}), 0)
-check('经验为 1',        geo.ring_level({automation = 1}), 0)
 check('经验小于 1',      geo.ring_level({automation = 0.5}), 0)
 check('经验为负(脏数据)', geo.ring_level({automation = -100}), 0)
-check('单种 10',         geo.ring_level({automation = 10}), 1)
-check('单种 999',        geo.ring_level({automation = 999}), 2)
-check('单种 1000',       geo.ring_level({automation = 1000}), 3)
-check('未知键被忽略',    geo.ring_level({automation = 10, ['不存在的瓶子'] = 1e9}), 1)
+check('经验为 1 → 1 位', geo.ring_level({automation = 1}), 1)
+check('经验为 9 → 1 位', geo.ring_level({automation = 9}), 1)
+check('单种 10 → 2 位',  geo.ring_level({automation = 10}), 2)
+check('单种 999 → 3 位', geo.ring_level({automation = 999}), 3)
+check('单种 1000 → 4 位',geo.ring_level({automation = 1000}), 4)
+check('未知键被忽略',    geo.ring_level({automation = 10, ['不存在的瓶子'] = 1e9}), 2)
 
--- 新旧公式的区分性用例：新式是「每项各自 floor 再相加」，旧式是「先加起来最后 floor 一次」。
--- 两种瓶子各 99 点：
---   旧式 floor(log10(99) × 2) = floor(1.9956 × 2) = floor(3.9912) = 3
---   新式 floor(log10(99)) + floor(log10(99)) = 1 + 1 = 2
--- 新式不允许两项的零头（0.9956 各一份）攒起来凑出第 3 级。
-check('新旧公式分歧: 两种各 99 → 新式 2（旧式会是 3）',
-    geo.ring_level({automation = 99, logistic = 99}), 2)
-
--- 三种瓶子各 9 点：
---   旧式 floor(log10(9) × 3) = floor(0.9542 × 3) = floor(2.8627) = 2
---   新式 floor(log10(9)) × 3 = 0 × 3 = 0（9 < 10，每项单独看都还没到第 1 级）
--- 这条最能说明零头不会跨项攒起来：三个 9 点在旧式下能拼出 2 级，新式下一级都拼不出来。
-check('新旧公式分歧: 三种各 9 → 新式 0（旧式会是 2）',
-    geo.ring_level({automation = 9, logistic = 9, military = 9}), 0)
+-- 每项【各自取位数再相加】，而不是【先加起来再取一次位数】。
+-- 两种瓶子各 99 点：各自 2 位，合计 4；若先相加（198）再取位数只有 3。
+-- 零头不跨项攒：这是 12 种分开记账的全部意义。
+check('两种各 99 → 各 2 位 = 4', geo.ring_level({automation = 99, logistic = 99}), 4)
+check('三种各 9 → 各 1 位 = 3',  geo.ring_level({automation = 9, logistic = 9, military = 9}), 3)
 
 local all_ten = {}
 for _, k in ipairs(geo.SCIENCE_PACKS) do all_ten[k] = 10 end
-check('12 种各 10 → 12', geo.ring_level(all_ten), 12)
+check('12 种各 10 → 24', geo.ring_level(all_ten), 24)
+
+local all_one = {}
+for _, k in ipairs(geo.SCIENCE_PACKS) do all_one[k] = 1 end
+check('12 种各 1 → 12（集齐即 12 级，也是环宽下限对应的等级）', geo.ring_level(all_one), 12)
 
 local all_million = {}
 for _, k in ipairs(geo.SCIENCE_PACKS) do all_million[k] = 1000000 end
-check('12 种各 100 万 → 72', geo.ring_level(all_million), 72)
+check('12 种各 100 万 → 84', geo.ring_level(all_million), 84)
 
--- 缺一种就少一整段：这是 12 种分开记账的全部意义
+-- 缺一种就整整少一段：没攒过的那项贡献 0，不是 1
 local eleven = {}
 for _, k in ipairs(geo.SCIENCE_PACKS) do eleven[k] = 10 end
 eleven[geo.SCIENCE_PACKS[12]] = 0
-check('缺 1 种 → 11', geo.ring_level(eleven), 11)
+check('缺 1 种 → 22', geo.ring_level(eleven), 22)
 
 -- ══ half_width ══
-check('L=0',  geo.half_width(0, 32, 16), 32)
-check('L=1',  geo.half_width(1, 32, 16), 48)
-check('L=12', geo.half_width(12, 32, 16), 224)
-check('L=72', geo.half_width(72, 32, 16), 1184)
+-- 半宽 = max(下限, 每级步长 × (等级 - 偏移))，配置是 (32, 16, 10)，即
+-- 宽 = 32 × (等级 - 10)，下限 64。集齐 12 种（等级 12）时正好落在下限上。
+check('等级 12（集齐，各 1 点）→ 半宽 32', geo.half_width(12, 32, 16, 10), 32)
+check('等级 13 → 半宽 48',                geo.half_width(13, 32, 16, 10), 48)
+check('等级 24（各 10 点）→ 半宽 224',     geo.half_width(24, 32, 16, 10), 224)
+check('等级 84（各 100 万）→ 半宽 1184',   geo.half_width(84, 32, 16, 10), 1184)
+
+-- 偏移以下一律夹到下限，绝不返回 0 或负数——负半宽会让 tile_at 把整条环判成 void，
+-- 玩家会掉进一个一格地板都没有的世界。
+check('等级 10 → 夹到下限 32', geo.half_width(10, 32, 16, 10), 32)
+check('等级 0  → 夹到下限 32', geo.half_width(0, 32, 16, 10), 32)
+check('等级 -5(脏数据) → 夹到下限 32', geo.half_width(-5, 32, 16, 10), 32)
+
+-- ══ 换算不改变实际效果：集齐 12 种时，新旧公式给出的环宽必须逐点相同 ══
+-- 旧：等级 L = Σ floor(log10)，半宽 = 32 + 16L
+-- 新：等级 L' = Σ (floor(log10)+1) = L + 12，半宽 = max(32, 16 × (L' - 10)) = 32 + 16L
+for old_level = 0, 72 do
+    local old_half = 32 + 16 * old_level
+    local new_half = geo.half_width(old_level + 12, 32, 16, 10)
+    check(('换算等价 L=%d'):format(old_level), new_half, old_half)
+end
 
 -- ══ tile_at ══
 -- 约定：tile 坐标 x 占据 [x, x+1)，所以有效范围是 x ∈ [-half, half)
