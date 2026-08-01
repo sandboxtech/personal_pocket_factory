@@ -1,9 +1,25 @@
--- 左上角 HUD：精简后只剩两行。
--- 第一行：6 个【纯图标、无文字】的传送按钮（戴森环 + 五个公共星球），
---   直接摆在屏幕最上方，不用先点开「传送」窗口就能一键跳转。
--- 第二行：环等级、体力池当前值（不显示上限）、几个功能按钮。
---   原来挤在这里的体力进度条 / 可领取数值 / 领取按钮，连同兑换、经验，
---   全部合并进一个「状态」子窗口（scripts/gui/status.lua），这里只留一个入口按钮。
+-- 左上角常驻 HUD。两行，视觉上分成三块：
+--
+--   ┌──────────────────────────────────────────┐
+--   │ ┌ 凹陷槽 ─────────────────┐              │   ← 传送图标条
+--   │ │ [环][N][V][G][F][A]     │              │
+--   │ └─────────────────────────┘              │
+--   │ Lv.4  [电]1234  宽128 │ [状态][全服][传送][?] │   ← 数据 | 分隔线 | 按钮
+--   └──────────────────────────────────────────┘
+--
+-- 三条布局上的讲究，都不是纯装饰：
+--
+-- ① 传送图标条套一层 inside_deep_frame（凹陷槽）。六颗图标按钮如果直接摆在
+--    外层 frame 上，会和下面那行的功能按钮糊成"一堆按钮"，玩家分不清哪些是
+--    "去某地"、哪些是"开某个窗口"。凹进去一层，它就读作一个独立的工具条。
+--
+-- ② 数据和按钮之间插一条竖线。左边是【状态】（只读，看一眼就走），
+--    右边是【操作】（点了会发生事情）。这两类东西并排放而不加分隔的话，
+--    "Lv.4" 和一颗按钮在余光里长得一样。
+--
+-- ③ 按钮一律用 tool_button（32×32 图标按钮），不用带文字的默认按钮。
+--    四个文字按钮横排会把 HUD 撑得很宽，而 HUD 是常驻的，占宽度就是永久成本。
+--    代价是要靠 tooltip 说明用途，所以每颗都必须有 tooltip（下面 action 里强制传）。
 local ring = require('scripts.ring')
 local stamina = require('scripts.stamina')
 local constants = require('scripts.constants')
@@ -13,21 +29,26 @@ local popup = require('scripts.gui.popup')
 local M = {}
 
 -- 传送图标行：按钮名复用 travel.lua 已有的路由名（pw_go_ring / pw_go_<星球名>），
--- 图标本身就是点击目标，caption 直接写死成一个不含文字的富文本图标标签，
+-- 图标本身就是点击目标，caption 直接写死成一个不含文字的富文本标签，
 -- 不经过 locale——两种语言下这颗图标长得一样，没有可翻译的文字。
 --
 -- tooltip 不一样：图标行本身没有文字，玩家得靠 tooltip 才知道点下去去哪儿，
 -- 所以 tooltip 里嵌 util.planet_label（[planet=xxx] 图标 + 引擎自带的本地化星球名），
--- 而不是甩一个裸的 surface 名（比如 "nauvis"）当纯文本——那样既没图标也不会跟着
--- 客户端语言翻译。戴森环那个同理，用 [space-location=solar-system-edge]
--- （见 pw.travel-home 的 locale 文本，图标已经写进那条翻译本身）。
-local function build_travel_icons(flow)
-    local go_ring = flow.add{type = 'button', name = 'pw_go_ring', caption = '[space-location=solar-system-edge]'}
+-- 而不是甩一个裸的 surface 名（比如 "nauvis"）当纯文本。
+local function build_travel_bar(parent)
+    -- 凹陷槽：让这六颗"去某地"的按钮和下面"开某个窗口"的按钮在视觉上分开。
+    local slot = parent.add{type = 'frame', name = 'pw_hud_travel_slot', style = 'inside_deep_frame'}
+    local bar = slot.add{type = 'flow', name = 'pw_hud_travel_bar', direction = 'horizontal'}
+    bar.style.horizontal_spacing = 0    -- 图标按钮紧挨着，读作一整条工具条
+
+    local go_ring = bar.add{type = 'button', name = 'pw_go_ring', style = 'tool_button',
+                            caption = '[space-location=solar-system-edge]'}
     go_ring.tooltip = {'pw.travel-home'}
 
     for _, name in ipairs(constants.PUBLIC_PLANETS) do
         local surface = game.surfaces[name]
-        local go = flow.add{type = 'button', name = 'pw_go_' .. name, caption = '[planet=' .. name .. ']'}
+        local go = bar.add{type = 'button', name = 'pw_go_' .. name, style = 'tool_button',
+                           caption = '[planet=' .. name .. ']'}
         go.tooltip = {'pw.hud-go-planet-tip', util.planet_label(name)}
         if not (surface and surface.valid) then
             -- 星球 surface 还没建出来（理论上 on_init 就建好了，这里只是防御）：
@@ -36,6 +57,14 @@ local function build_travel_icons(flow)
             go.tooltip = {'pw.world-not-ready', util.planet_label(name)}
         end
     end
+end
+
+-- 功能按钮。tooltip 是【必填参数】而不是可选项：这些按钮只有图标没有文字，
+-- 漏了 tooltip 的那一颗，玩家就完全不知道它是干什么的。
+local function action(parent, name, icon, tooltip)
+    local button = parent.add{type = 'button', name = name, style = 'tool_button', caption = icon}
+    button.tooltip = tooltip
+    return button
 end
 
 -- 同时承担"不存在就创建"和"刷新内容"两件事：不存在就 add 一个，然后统一 clear()
@@ -52,20 +81,25 @@ function M.refresh(player)
         root = player.gui.top.add{type = 'frame', name = popup.HUD_NAME, direction = 'vertical'}
     end
     root.clear()
+    root.style.padding = 4
+    root.style.vertical_spacing = 4
 
-    local travel_bar = root.add{type = 'flow', name = 'pw_hud_travel_bar', direction = 'horizontal'}
-    build_travel_icons(travel_bar)
+    build_travel_bar(root)
 
     local row = root.add{type = 'flow', name = 'pw_hud_main_row', direction = 'horizontal'}
     row.style.vertical_align = 'center'
+    row.style.horizontal_spacing = 8
 
     local name = player.name
-    local level = ring.level_of(name)
 
-    row.add{type = 'label', caption = {'pw.hud-level', level}}
+    -- 等级和体力用加粗样式：这两个数字是玩家最常瞥一眼的东西，
+    -- 混在普通标签里会被旁边的按钮抢掉注意力。
+    local level = row.add{type = 'label', caption = {'pw.hud-level', ring.level_of(name)}}
+    level.style.font = 'default-bold'
 
-    -- 体力池余额：只显示当前值。上限、可领取进度条、领取按钮都在「领取」子窗口里。
-    row.add{type = 'label', caption = {'pw.hud-balance', stamina.balance(name)}}
+    -- 体力池余额：只显示当前值。上限、可领取进度条、领取按钮都在「状态」窗口里。
+    local balance = row.add{type = 'label', caption = {'pw.hud-balance', stamina.balance(name)}}
+    balance.style.font = 'default-bold'
 
     -- 戴森环宽度：新人不需要这个数字也能玩（怎么变宽在「经验」窗口和玩法说明里都讲了），
     -- 只有老玩家（在线满 storage.detail_hours 小时）才在 HUD 上多看到这一项。
@@ -73,20 +107,17 @@ function M.refresh(player)
         row.add{type = 'label', caption = {'pw.hud-ring-width', ring.half_width_of(name) * 2}}
     end
 
-    -- 原来的「领取／兑换／经验」三个按钮合并成一个：三块内容本来就要互相参照着看
+    -- 竖线分隔【只读数据】和【会发生事情的按钮】，见文件头 ② 。
+    row.add{type = 'line', direction = 'vertical'}
+
+    -- 原来的「领取／兑换／经验」三个按钮早已合并成一个：三块内容本来就要互相参照着看
     -- （体力够不够兑换、兑换完经验涨没涨），分开点三次纯属多余的操作成本。
-    row.add{type = 'button', name = 'pw_btn_status', caption = {'pw.btn-status'},
-             tooltip = {'pw.btn-status-tip'}}
-    row.add{type = 'button', name = 'pw_btn_help', caption = {'pw.btn-help'}}
-    -- 全服总览：所有戴森环 + 各人名下的飞船。原来那份「大家的戴森环」列表
-    -- 藏在传送窗口里、还只有老玩家看得见，等于新人根本不知道服务器上有别人。
-    -- 提到 HUD 上单开一个入口，全员可见（详细数值仍只给老玩家，见 gui/overview.lua）。
-    row.add{type = 'button', name = 'pw_btn_overview', caption = {'pw.btn-overview'},
-             tooltip = {'pw.btn-overview-tip'}}
-    -- 「传送」放最后：既是最不常用的一步（图标行已经能一键直达），也和弹窗里
-    -- 「传送」标签页/按钮统一放在最右边的约定对上。
-    row.add{type = 'button', name = 'pw_btn_travel', caption = {'pw.btn-travel'},
-             tooltip = {'pw.btn-travel-tip'}}
+    action(row, 'pw_btn_status', '[img=virtual-signal/signal-battery-mid-level]', {'pw.btn-status-tip'})
+    action(row, 'pw_btn_overview', '[img=virtual-signal/signal-info]', {'pw.btn-overview-tip'})
+    -- 「传送」放按钮组最后：图标行已经能一键直达，弹窗里那份是带倒计时的完整版，
+    -- 属于"想规划一下再走"时才点的东西。
+    action(row, 'pw_btn_travel', '[img=space-location/solar-system-edge]', {'pw.btn-travel-tip'})
+    action(row, 'pw_btn_help', '[img=utility/questionmark]', {'pw.btn-help-tip'})
 end
 
 return M
