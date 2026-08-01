@@ -147,7 +147,10 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | `scripts/world_terrain.lua` | 公共世界地貌斑块：每轮重置换一套噪声参数，重新分布原生地块 + 调整树木疏密，绝不放箱子/敌人。 |
 | `scripts/noise.lua` | 2D simplex 噪声 + 分形多倍频，供 `world_terrain.lua` 用。 |
 | `scripts/tick.lua` | 相位调度器（取代互质取模）+ GUI 点击总路由，`script.on_nth_tick(3600)` 每约 1 分钟跑一次。 |
-| `scripts/commands.lua` | 管理员指令，目前只有 `/ring-delete <玩家名>`。 |
+| `scripts/commands.lua` | 管理员指令：`/ring-delete <玩家名>`、`/ring-delete-all [confirm]`、`/pw-config`。 |
+| `scripts/ships.lua` | 飞船（太空平台）：登记表按平台 index 主键、每人一艘、寿命到期销毁、禁用原生建船按钮。 |
+| `scripts/gui/overview.lua` | 全服总览：一人一行的紧凑表格，所有戴森环 + 各人名下的飞船，兼造船入口。 |
+| `scripts/gui/config.lua` | 管理员参数窗口：字段名 / 当前值 / 生效范围 / 说明，数据源是 `constants.TUNABLES`。 |
 | `scripts/util.lua` | 无状态工具：数字可读化、进度条文本、取玩家本体角色、`is_veteran` 分级披露判定、星球图标标签。 |
 | `scripts/gui/init.lua` | GUI 路由入口：HUD 刷新转发 + 点击事件分发到各窗口模块。 |
 | `scripts/gui/popup.lua` | 弹窗骨架叶子模块（`HUD_NAME`/`POPUP_NAME`/`open_popup`/`close_popup`），专为打破循环依赖抽出。 |
