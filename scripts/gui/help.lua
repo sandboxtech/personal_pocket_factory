@@ -1,6 +1,6 @@
 -- 玩法说明弹窗。分三段，按「这条规则现在对你有没有用」决定给谁看。
 --
--- ① help-body（所有人）：主循环本身 —— 环 / 十二种经验 / 关联箱 / 自动兑换 / 公共世界。
+-- ① help-body（所有人）：主循环本身 —— 环 / 死亡与补给 / 十二种经验 / 关联箱 / 公共世界。
 --    新人照着这段就能开始玩。
 -- ② help-body-veteran（老玩家）：科技漏水 / 体力 / 长期不上线。
 --    这三件事都是「知道了能规划、不知道也照样上手」的规则：新人先把
@@ -17,16 +17,38 @@ local popup = require('scripts.gui.popup')
 
 local M = {}
 
+-- 预警档位，降序。storage 里存的是管理员随手写的数组，顺序不保证，
+-- 而说明里「5 / 1」倒过来写成「1 / 5」会让人以为先提醒 1 分钟再提醒 5 分钟。
+local function warn_list()
+    local src = storage.world_warn_minutes
+    if type(src) ~= 'table' then src = {5, 1} end
+    local out = {}
+    for _, v in ipairs(src) do out[#out + 1] = v end
+    table.sort(out, function(a, b) return a > b end)
+    return out
+end
+
 function M.show(player)
     local inner = popup.open_popup(player, {'pw.help-title'})
     -- 投递口个数是玩家最常问、也是管理员最可能调的数字，所以从 storage 现读传进去，
     -- 不写死在 locale 文本里 —— 改了配置说明会跟着变，不会出现"说明说 1 个、实际能放 12 个"。
-    local label = inner.add{type = 'label', caption = {'pw.help-body', storage.dropoff_limit or 12}}
+    -- 第二个参数是起始装备的补发冷却。放在【所有人都看得到】的这一段，不是塞进老玩家的
+    -- 具体数值段：新人恰恰最容易死，也最容易以为"每次复活都白给一套"，
+    -- 于是把一套装备当消耗品用掉，然后三小时内赤手空拳。
+    local label = inner.add{type = 'label', caption = {'pw.help-body',
+        storage.dropoff_limit or 12,
+        storage.starter_equipment_hours or 3,
+    }}
     label.style.single_line = false
     label.style.maximal_width = popup.WIDTH
 
     if util.is_veteran(player) then
-        local extra = inner.add{type = 'label', caption = {'pw.help-body-veteran'}}
+        -- 自动兑换有【两档速率】（在线快、离线慢），这一版之前说明里只写了一档，
+        -- 于是离线玩家会以为自己的收货箱每分钟都在被吃，实际是十分钟一次。
+        local extra = inner.add{type = 'label', caption = {'pw.help-body-veteran',
+            storage.auto_convert_minutes or 1,
+            storage.auto_convert_offline_minutes or 10,
+        }}
         extra.style.single_line = false
         extra.style.maximal_width = popup.WIDTH
 
@@ -46,6 +68,9 @@ function M.show(player)
             -- 只报上限会让新人以为自己也有 30 小时可以挥霍，实际只有 3 小时。
             min_hours,
             min_hours * (storage.ring_delete_multiple or 3),
+            -- 预警档位是个长度不定的数组，没法一档一个占位符，先拼成一个串再传。
+            -- 用 / 分隔而不是顿号：这一栏在 11 种语言里共用同一个拼法。
+            table.concat(warn_list(), ' / '),
         }}
         detail.style.single_line = false
         detail.style.maximal_width = popup.WIDTH
