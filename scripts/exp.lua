@@ -155,25 +155,30 @@ end
 -- 变成了吞吐量竞争：他可以架机械臂从收货箱往实验室拉科技瓶，跟自动兑换抢同一批货，
 -- 谁的机械臂快、数量多，谁就能在瓶子被自动兑换吃掉之前先拉走——这个决策落在
 -- 机械臂速度和数量上，比"往哪个箱子送"更符合 Factorio 的玩法核心。
--- 距下一次自动兑换还剩多少 tick，供传送页面做倒计时。没排期返回 nil。
+-- 【两档节奏】：在线玩家每次都过（调度器 storage.auto_convert_minutes，默认 1 分钟），
+-- 离线玩家走一道额外的闸门（storage.auto_convert_offline_minutes，默认 10 分钟）。
 --
--- 和 worlds.tech_loss_time_left 同一套路：storage.auto_convert_next_at 由
--- scripts/tick.lua 的调度器写，本模块只读。方向必须是这个 ——
--- tick.lua 在顶层 require 了 exp（要调 tick_auto_convert），
--- Factorio 又禁止函数体内 require 来绕开循环，所以 exp 绝不能反过来 require tick。
+-- 分两档的理由是【反馈延迟只对在线的人有意义】：
+-- 人在线时，把一批瓶子塞进收货箱之后想马上看到经验涨，一小时一次太迟钝；
+-- 而离线玩家看不到任何过程，对他来说只有"回来时总量对不对"，隔多久结算一次没有区别。
+-- 既然没区别，就没有理由每分钟把全服离线玩家的环都扫一遍 —— 人一多那是纯粹的浪费。
 --
--- 不在 constants.ensure_defaults 里预置默认值：预置一个假时刻的话，
--- 调度器还没跑第一轮时 UI 会显示一个从未生效过的倒计时，比"尚未排期"更误导人。
-function M.auto_convert_time_left()
-    local at = storage.auto_convert_next_at
-    if not at then return nil end
-    return at - game.tick
-end
-
+-- 【总产出不受节奏影响】：配额是体力池点数，体力按固定速率恢复，
+-- 换得勤只是把同样多的体力分成更多次花掉，不会凭空多出经验。
 function M.tick_auto_convert()
     storage.ring_state = storage.ring_state or {}
+
+    -- 离线闸门。到点了就把下次时刻推后一个周期，本轮连离线玩家一起处理。
+    local offline_period = (storage.auto_convert_offline_minutes or 10) * constants.min_to_tick
+    local offline_due = (storage.auto_convert_offline_at or 0) <= game.tick
+    if offline_due then
+        storage.auto_convert_offline_at = game.tick + offline_period
+    end
+
     for _, player in pairs(game.players) do
-        if storage.ring_state[player.name] ~= 'public' then
+        -- 在线的每轮都过；离线的只在闸门打开的那一轮过。
+        if (player.connected or offline_due)
+                and storage.ring_state[player.name] ~= 'public' then
             local surface = game.surfaces[ring.surface_name_for(player.index)]
             if surface and surface.valid then
                 -- 12 个收货箱共享同一份 inventory（都挂着同一个 link_id），

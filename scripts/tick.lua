@@ -46,7 +46,13 @@ local M = {}
 local CYCLE_TASKS = {
     { key = 'tech_loss', phase_index = 0, fn = function() worlds.tick_tech_loss() end },
     { key = 'ring_lifecycle', phase_index = 1, fn = function() pockets.tick_lifecycle() end },
-    { key = 'auto_convert', phase_index = 2, fn = function() exp.tick_auto_convert() end },
+    -- 自动兑换是【唯一一个用自己周期】的任务：默认 1 分钟一次，其余任务仍走
+    -- storage.cycle_minutes（60 分钟）。理由见 exp.tick_auto_convert 的注释 ——
+    -- 在线玩家要的是"塞进收货箱的瓶子很快变成经验"这种即时反馈，一小时一次太迟钝。
+    -- 代价是它会周期性地和星球重置撞在同一分钟（1 分钟的周期没法和任何东西错开），
+    -- 但这个任务很轻（每人读一个箱子的库存），撞上也不会有卡顿尖峰。
+    { key = 'auto_convert', phase_index = 2, period_key = 'auto_convert_minutes',
+      fn = function() exp.tick_auto_convert() end },
     { key = 'ship_lifecycle', phase_index = 3, fn = function() ships.tick_lifecycle() end },
 }
 
@@ -63,7 +69,8 @@ local CYCLE_TASKS = {
 -- 加一项就在这张表里加一行，不用改下面的调度逻辑。
 local MIRRORED = {
     tech_loss = 'tech_loss_next_at',
-    auto_convert = 'auto_convert_next_at',
+    -- auto_convert 曾经也镜像过一份，供传送页做倒计时。周期改成 1 分钟之后
+    -- 那个倒计时永远显示 0，界面改成直接说明节奏，这份镜像随之成了死代码，已删。
 }
 
 local function sync_task_mirror(key, at)
@@ -118,7 +125,10 @@ script.on_nth_tick(3600, events.safe('nth_tick', function()
         local at = storage.cycle_next_at[task.key]
         if tick >= at then
             task.fn()
-            local period = (storage.cycle_minutes or 60) * constants.min_to_tick
+            -- 任务可以指定自己的周期字段（period_key），没指定就用全局的 cycle_minutes。
+            local minutes = (task.period_key and storage[task.period_key])
+                or storage.cycle_minutes or 60
+            local period = minutes * constants.min_to_tick
             local next_at = at + period   -- 从"这次该触发的时刻"累加，不从"现在"累加，防止相位漂移
             storage.cycle_next_at[task.key] = next_at
             sync_task_mirror(task.key, next_at)

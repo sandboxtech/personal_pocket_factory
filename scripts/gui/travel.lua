@@ -1,8 +1,6 @@
 local constants = require('scripts.constants')
 local pockets = require('scripts.pockets')
 local worlds = require('scripts.worlds')
--- exp 只依赖 constants/geometry/ring/stamina/util，都不反向依赖 gui，顶层 require 不成环。
-local exp = require('scripts.exp')
 local util = require('scripts.util')
 local popup = require('scripts.gui.popup')
 
@@ -34,16 +32,14 @@ function M.show(player)
         inner.add{type = 'label', caption = {'pw.travel-tech-unscheduled'}}
     end
 
-    -- 自动兑换倒计时。和科技漏水一样【所有人都看得到】：
-    -- 它决定"我现在要不要赶紧把收货箱里的瓶子用机械臂拉进实验室"，
-    -- 是一条看了就能改变当下动作的信息，不是给老玩家看的优化细节。
-    local convert_left = exp.auto_convert_time_left()
-    if convert_left then
-        local minutes = math.max(0, math.floor(convert_left / constants.min_to_tick))
-        inner.add{type = 'label', caption = {'pw.travel-convert-timer', minutes}}
-    else
-        inner.add{type = 'label', caption = {'pw.travel-convert-unscheduled'}}
-    end
+    -- 自动兑换：显示【节奏】而不是倒计时。
+    --
+    -- 这里一度是个倒计时，但自动兑换的周期随后改成了 1 分钟，
+    -- 倒计时就永远显示"还剩 0 分钟"——一个每次看都一样的数字不是信息。
+    -- 换成"每 N 分钟一次、要花体力"，玩家据此能做的判断反而更清楚：
+    -- 要留瓶子做研究就得赶在下一轮之前用机械臂拉走，而且它和手动兑换抢同一池体力。
+    inner.add{type = 'label', caption = {'pw.travel-convert-rate',
+        storage.auto_convert_minutes or 1}}
 
     for _, name in ipairs(constants.PUBLIC_PLANETS) do
         local row = inner.add{type = 'flow', direction = 'horizontal'}
