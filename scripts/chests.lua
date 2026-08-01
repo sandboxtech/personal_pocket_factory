@@ -34,12 +34,6 @@ local function array_positions()
     return out
 end
 
--- 位置 → 字符串键。用于判断某个系统箱是不是还站在名单上的位置。
--- 保留一位小数：所有位置都是 x.5 这种半格坐标，一位就够且不会有浮点表示差异。
-local function pos_key(x, y)
-    return string.format('%.1f,%.1f', x, y)
-end
-
 -- 某人的 12 箱阵此刻应该用哪个 link_id。
 -- 公共期（离线 30-50 小时）指向全服公共库存，其余时候指向他自己。
 function M.expected_link_id(player_name)
@@ -66,31 +60,7 @@ end
 -- 这里归属是入参直接给定的，不需要绕那一圈。
 function M.ensure_array(surface, player)
     local link_id = M.expected_link_id(player.name)
-    local positions = array_positions()
-
-    -- ══ 先清掉不在名单上的旧系统箱 ══
-    -- 改过箱阵坐标之后，老环上会留着上一版位置的 12 个箱子，而下面那个循环只会
-    -- 在【新】位置补建 —— 不清理的话老环会变成 24 个箱子，而且旧的那批还照常收货。
-    -- 这也是 ensure_array 号称幂等所必需的：幂等意味着"跑完之后状态等于当前配置",
-    -- 而不只是"缺的补上"。
-    --
-    -- 判据是 destructible == false —— 系统箱的唯一标志（玩家放的箱子恒为可摧毁，
-    -- 见下面 on_built 里同一条判据）。所以这里绝不会误删玩家自己在环里放的关联箱。
-    --
-    -- 摧毁箱子【不会丢货】：关联箱的库存挂在 link_id 上，不挂在箱子实体上，
-    -- 货还在那份共享库存里，新位置的箱子一建好就能继续存取。
-    local wanted = {}
-    for _, pos in ipairs(positions) do wanted[pos_key(pos.x, pos.y)] = true end
-    for _, chest in pairs(surface.find_entities_filtered{name = LINKED}) do
-        if chest.valid and not chest.destructible then
-            local p = chest.position
-            if not wanted[pos_key(p.x, p.y)] then
-                chest.destroy()
-            end
-        end
-    end
-
-    for _, pos in ipairs(positions) do
+    for _, pos in ipairs(array_positions()) do
         local existing = surface.find_entity(LINKED, pos)
         if not existing then
             local chest = surface.create_entity{
@@ -129,9 +99,10 @@ function M.ensure_array(surface, player)
                     surface.name, pos.x, pos.y, player.name))
             end
         else
-            -- 「已存在」分支也要重设这四项，不能只在新建时设——
-            -- 否则老存档里已经建好的箱阵（例如本次修复之前创建的、还是 player force 的）
-            -- 不会被这次修复补上，ensure_array 就不是真正幂等的。
+            -- 「已存在」分支也要重设这四项，不是冗余：
+            -- link_id 会随环的 private/public 状态来回切（见 M.set_array_link），
+            -- 每次 ensure 重新按 expected_link_id 对齐一遍，箱阵就不会和环的状态脱节。
+            -- 另外三项是"任何时候都该是这个值"的不变量，一起压一遍代价可忽略。
             existing.link_id = link_id
             existing.destructible = false
             existing.minable = false

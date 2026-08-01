@@ -1,11 +1,15 @@
--- 玩法说明弹窗。
+-- 玩法说明弹窗。分三段，按「这条规则现在对你有没有用」决定给谁看。
 --
--- 新人和老玩家看到的内容不一样：help-body 只讲"怎么玩"，不含任何数值；
--- 老玩家（util.is_veteran，累计在线满 storage.detail_hours 小时）在下面多看一段
--- help-body-detail，把重置周期、科技撤销概率、戴森环生命周期阈值这些
--- "知道了能优化、不知道也不影响上手"的具体数字摆出来。
+-- ① help-body（所有人）：主循环本身 —— 环 / 十二种经验 / 关联箱 / 自动兑换 / 公共世界。
+--    新人照着这段就能开始玩。
+-- ② help-body-veteran（老玩家）：科技漏水 / 体力 / 长期不上线。
+--    这三件事都是「知道了能规划、不知道也照样上手」的规则：新人先把
+--    采集→送货→攒经验这条主循环跑顺，比提前担心科技会掉、环会被公有化更重要。
+-- ③ help-body-detail（老玩家）：上面那些规则的具体数字。
 --
--- 这些数字全部现读 storage（带 nil 兜底），不写死在 locale 文本里——
+-- 老玩家的判据是 util.is_veteran（累计在线满 storage.detail_hours 小时，默认 6，可热改）。
+--
+-- ③ 里的数字全部现读 storage（带 nil 兜底），不写死在 locale 文本里——
 -- 管理员改配置后这段说明立刻跟着变，不会跟实际配置脱节。
 local constants = require('scripts.constants')
 local util = require('scripts.util')
@@ -20,6 +24,10 @@ function M.show(player)
     label.style.maximal_width = popup.WIDTH
 
     if util.is_veteran(player) then
+        local extra = inner.add{type = 'label', caption = {'pw.help-body-veteran'}}
+        extra.style.single_line = false
+        extra.style.maximal_width = popup.WIDTH
+
         local minutes = storage.world_reset_minutes or {}
         local planets = constants.PUBLIC_PLANETS   -- 顺序：nauvis / vulcanus / gleba / fulgora / aquilo
         local detail = inner.add{type = 'label', caption = {'pw.help-body-detail',

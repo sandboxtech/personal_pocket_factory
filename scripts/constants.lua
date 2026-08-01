@@ -1,6 +1,8 @@
 -- 全局常量 + storage 默认值的【唯一出生地】。
 -- ensure_defaults() 在 on_init / on_configuration_changed / 每次世界重置时都会调用，幂等、不覆盖已调过的值。
--- 各模块使用点只保留 nil 兜底（老存档继承时 storage 字段可能还没补上，直接索引会崩）。
+-- 各模块使用点仍保留 nil 兜底：ensure_defaults 是幂等的（storage.x = storage.x or 默认值），
+-- 所以【本次新加的字段在开发中途重载的存档里可能还没有值】，直接索引会崩。
+-- 这不是为了兼容历史版本存档——本项目不承诺跨版本存档兼容，赛季直接开新档。
 local geometry = require('scripts.geometry')
 
 local M = {}
@@ -14,9 +16,6 @@ M.hour_to_tick = 60 * 60 * 60
 -- Fulgora 闪电、Aquilo 冻结、Vulcanus 巨虫领地、各自的 autoplace 与表面属性基准。
 -- 裸 surface 只能靠 set_property 调那几个表面属性，这些机制一个都拿不到。
 M.PUBLIC_PLANETS = {'nauvis', 'vulcanus', 'gleba', 'fulgora', 'aquilo'}
-
--- 口袋世界的表面名前缀。surface 名不能带特殊字符，玩家名直接拼在后面。
-M.POCKET_PREFIX = 'pocket_'
 
 -- 公共库存的 link_id。player.index 从 1 开始，所以 0 永不碰撞。
 -- 全服只有一个公共库存：所有弃厂的产出汇进同一个池子。
@@ -34,9 +33,10 @@ M.PUBLIC_LINK_ID = 0
 M.CHEST_COLUMNS = {-4, 3}      -- 两列各自占的 tile x
 M.CHEST_ROW_FROM = -3          -- 每列 6 个，tile y 从这里
 M.CHEST_ROW_TO = 2             -- 到这里（闭区间）
--- 落点在右列外侧再空一格：右列占 tile x = 3（即 x ∈ [3,4]），
--- 落点取 6 而不是 5，是给角色留出转身的余地，不至于一进来就贴着箱子。
-M.RING_SPAWN = {6, 0}
+-- 落点就在【环心】。两列外移之后中间那 6 格是空的，原点正落在其中，
+-- 玩家一进环站在箱阵正当中，左右各三格就是收货口，视野和动线都最短。
+-- （外移之前原点被箱子占着，落点只能挪到箱阵外侧去。）
+M.RING_SPAWN = {0, 0}
 
 -- 戴森环的地图生成设置。
 --
@@ -73,32 +73,6 @@ function M.ring_map_gen(seed, ring_height)
     }
 end
 
--- 把 v1 的 storage.exp[玩家名]（一个 number）迁移成 12 键 table。
--- 老经验整个折算进 automation 一项 —— 那时候经验不分种类，归给第一种最不容易引起争议。
--- 幂等：已经是 table 的不动。
-local function migrate_exp()
-    storage.exp = storage.exp or {}
-    for name, value in pairs(storage.exp) do
-        if type(value) == 'number' then
-            local fresh = {}
-            for _, key in ipairs(geometry.SCIENCE_PACKS) do fresh[key] = 0 end
-            fresh.automation = value
-            storage.exp[name] = fresh
-        end
-    end
-end
-
--- 把 v1 的 storage.world_reset_minutes（统一一个 number）迁移成 per-planet table。
--- 不做"拿旧数字填满五个星球"式的迁移：这次改造的目的就是让周期分层
--- （nauvis 一小时练兵、aquilo 五小时长线经营），沿用旧的单一数字反而违背改动意图。
--- 直接置 nil，交给下面 ensure_defaults 里的默认值表重建。
--- 幂等：已经是 table（或本来就没设过）的不动。
-local function migrate_world_reset_minutes()
-    if type(storage.world_reset_minutes) == 'number' then
-        storage.world_reset_minutes = nil
-    end
-end
-
 -- 保证某玩家的经验表存在且 12 个键齐全。新增瓶种时也靠它补齐。
 function M.ensure_exp_table(player_name)
     storage.exp = storage.exp or {}
@@ -129,7 +103,6 @@ function M.ensure_defaults()
     -- ══ 经验（12 种，按科技瓶短名分列） ══
     storage.exp = storage.exp or {}
     storage.exp_log = storage.exp_log or {}
-    migrate_exp()                                                  -- v1 的 number 转 table
 
     -- ══ 兑换（配额制：1 点体力最多兑一组瓶子，见 exp.lua） ══
     storage.quality_exp = storage.quality_exp or
@@ -166,7 +139,6 @@ function M.ensure_defaults()
 
     -- ══ 公共世界 ══
     storage.public_size = storage.public_size or 2048
-    migrate_world_reset_minutes()                                   -- v1 的统一 number 转 per-planet table
     -- 每星球各自的重置周期（分钟）。周期长短即难度分层：
     -- nauvis 一小时一轮，是新人的练兵场；aquilo 五小时一轮，值得长线经营。
     -- 【按名字索引，不按下标】——constants.PUBLIC_PLANETS 的顺序是
