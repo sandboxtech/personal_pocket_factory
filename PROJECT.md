@@ -250,6 +250,19 @@ on_player_joined_game:
   默认值` 这种写法，一旦某个字段在某个存档里已经有值，新默认值永远覆盖不了它。测试新配置
   项要么 `/c storage.x = nil` 之后重载，要么直接开一个新档。
 
+- **查引擎 API 一律按【类】列全量，不要按猜的关键词 grep。** 本机有一份权威的
+  `runtime-api.json`（`Steam/steamapps/common/Factorio/doc-html/`），把某个类的
+  `methods` / `attributes` 整个打印出来只要几秒。曾经为了「怎么把玩家送上飞船」，
+  用 `driver` / `vehicle` / `teleport` 当关键词搜，一无所获，于是从「太空平台中枢原型
+  没有载具字段」推出「进不去」，自己实现了一套「在中枢旁找空格子再 teleport」——
+  而引擎其实有现成的 `LuaPlayer.enter_space_platform(platform)`（配套还有
+  `leave_space_platform`）。**关键词搜索只能证明"我搜的这个词没命中"，永远证明不了
+  "这个能力不存在"**，而后者才是当时真正要回答的问题。
+  另外 `tests/check_api_args.py` 会拿 `runtime-api.json` 核对所有引擎调用的位置参数，
+  专抓「布尔字面量落在非布尔参数位」这类写反（`set_surface_hidden(true, surface)`
+  就是这么被发现的）。注意 `takes_table` 在 runtime-api v6 里位于 `method.format` 下，
+  不是顶层字段。
+
 - 改完 `.lua` 跑一次语法检查：`luac -p control.lua scripts/*.lua scripts/gui/*.lua`。
   改了 `geometry.lua` 或任何几何/等级数学，跑 `lua5.4 tests/test_geometry.lua`（当前 45/45）。
 

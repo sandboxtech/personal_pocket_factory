@@ -192,25 +192,36 @@ end
 
 -- 把玩家送上某艘飞船。
 --
--- 【绝不能在找不到落脚点时兜底成原点】：平台表面上没铺基座的地方就是真空，
--- 传送过去角色直接没命。找不到就老实报错，让玩家自己想办法。
+-- 【用 LuaPlayer.enter_space_platform，不要自己算落脚点】。
+-- 引擎给了专门的入口："Enters the given space platform if possible"，返回是否进去了。
+-- 它把玩家送进【中枢内部】，正是原版坐货运舱抵达平台时的那个状态，玩家自己按退出
+-- 就走到平台上 —— 配套的 leave_space_platform 描述得很明白：
+-- "Ejects this player from the current space platform... The player is left on the
+--  platform at the position of the hub."
+--
+-- 这比"在中枢周围找一个空格子再 teleport"好在：不依赖平台上此刻有没有空地，
+-- 抵达状态也和原版完全一致，不会出现一个站在船边缘、离控制台十万八千里的角色。
 local function board(player, platform_index)
     local platform = game.forces.player.platforms[platform_index]
     if not (platform and platform.valid) then
         player.print({'pw.overview-ship-gone'})
         return
     end
-    -- 平台在，但 surface 还没有：船停在等起步包的状态（apply_starter_pack 失败过）。
+    -- 平台在，但 surface 还没有：起步包还没用火箭发上来，船没成形。
     -- 这和「船没了」是两码事，报错要分开说，否则玩家会以为船被销毁了。
-    local surface = platform.surface
-    if not (surface and surface.valid) then
+    if not ships.is_ready(platform) then
         player.print({'pw.overview-ship-not-ready'})
         return
     end
 
-    -- 以中枢为落脚参考点：那是平台上唯一保证有基座的地方。
-    -- 中枢不存在（起步包还没落地）时退回原点【作为搜索中心】，
-    -- 但仍然要求 find_non_colliding_position 真的找到一个能站的格子。
+    if player.enter_space_platform(platform) then return end
+
+    -- 走到这里说明引擎拒绝了，但没说为什么（返回值只是个 boolean）。
+    -- 退而求其次：在中枢旁边找个格子传过去。这条兜底是安全的 ——
+    -- empty-space 地块的碰撞掩码里有 player = true，find_non_colliding_position
+    -- 绝不会把角色放进真空；找不到就老实报错，【不】拿一个写死的坐标去 teleport
+    -- （teleport 默认不做碰撞检查，盲传是会把人塞进虚空的）。
+    local surface = platform.surface
     local hub = platform.hub
     local origin = (hub and hub.valid) and hub.position or {0, 0}
     local pos = surface.find_non_colliding_position('character', origin, 64, 1)

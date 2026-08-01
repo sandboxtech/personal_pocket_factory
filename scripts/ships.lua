@@ -179,13 +179,21 @@ events.on(defines.events.on_surface_created, function(event)
     on_platform_surface(game.surfaces[event.surface_index])
 end)
 
--- 把还站在某艘船上的人撤回各自的戴森环。销毁前调用，不把人清进虚空。
+-- 把还在某艘船上的人撤回各自的戴森环。销毁前调用，不把人清进虚空。
+--
+-- 先 leave_space_platform 再传送：玩家可能【在中枢内部】而不是站在平台地板上
+-- （overview 的登船走的是 LuaPlayer.enter_space_platform，进去就是中枢内部，
+-- 这也是原版坐货运舱抵达时的状态）。带着"在平台里"这个状态直接跨 surface 传送
+-- 是个没验证过的路径，先显式退出来把状态清干净，再走正常的传送。
+-- leave_space_platform 对不在平台里的人是 no-op（文档："if in a platform"），
+-- 所以无条件调用是安全的。
 local function evacuate(platform)
     local surface = platform.surface
     if not (surface and surface.valid) then return end
     for _, p in pairs(game.connected_players) do
         if p.surface == surface then
             p.print({'pw.ship-evacuated'})
+            p.leave_space_platform()
             pockets.enter(p)
         end
     end
