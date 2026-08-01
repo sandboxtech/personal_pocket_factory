@@ -255,6 +255,26 @@ function M.register_dropoff(player_index, chest)
     end
 
     storage.dropoffs[player_index] = list
+    return #list, limit
+end
+
+-- 机器人代建时给主人一句提示。
+--
+-- 【手动放不用提示，机器人代建必须提示】：手动放的时候玩家就站在那儿，箱子变成什么样
+-- 他自己看得见；而机器人是照着蓝图铺的，主人很可能正在另一颗星球上，
+-- 名额被吃掉了、木箱被换成了关联箱，他一概不知道。
+--
+-- 【必须节流】：一张蓝图可能一次性铺下十几个箱子，逐个播报会把聊天框刷满，
+-- 结果是玩家把整段都当噪声划过去 —— 那还不如不发。一秒最多一条，报的是最新的占用数。
+local function notify_robot_built(player_index, chest, used, limit)
+    local player = game.players[player_index]
+    if not (player and player.valid and player.connected) then return end
+    storage.dropoff_notice_at = storage.dropoff_notice_at or {}
+    local last = storage.dropoff_notice_at[player_index]
+    if last and game.tick - last < 60 then return end
+    storage.dropoff_notice_at[player_index] = game.tick
+    player.print({'pw.dropoff-robot-built',
+        util.surface_label(chest.surface.name), used, limit})
 end
 
 local function on_built(event)
@@ -310,12 +330,21 @@ local function on_built(event)
     -- 取不到建造者（player_index 为空，例如机器人建造时 last_user 也拿不到）就不做限制——
     -- 这种箱子已经在 rightful_link_id 里兜底成公共库存了，不属于「某个玩家的投递口」。
     if player_index and chest.destructible then
-        M.register_dropoff(player_index, chest)
+        local used, limit = M.register_dropoff(player_index, chest)
+        -- event.player_index 为空 = 不是玩家亲手放的（机器人 / 太空平台代建）。
+        if not event.player_index then
+            notify_robot_built(player_index, chest, used, limit)
+        end
     end
 end
 
 events.on(defines.events.on_built_entity, on_built)
 events.on(defines.events.on_robot_built_entity, on_built)
+-- 【太空平台上的机器人走的是另一个事件】，不是 on_robot_built_entity。
+-- 漏订阅它是个防偷漏洞而不只是少个提示：这条路径建出来的关联箱会保持 player force、
+-- operable 也还是默认的 true，于是谁都能打开它、把 link_id 改成别人的，
+-- 直接接到别人戴森环那份共享库存上。飞船全服公有、谁都能登船，这条路人人走得通。
+events.on(defines.events.on_space_platform_built_entity, on_built)
 
 -- ══ 挖走 / 被摧毁时清理登记表 ══
 -- 现在戴森环里也可能存在被登记的玩家关联箱（见上面 on_built），所以不再按 surface
