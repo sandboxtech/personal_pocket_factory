@@ -82,7 +82,7 @@ function M.paint_area(surface, x_from, x_to, y_from, y_to, half_width)
     local ring_height = storage.ring_height or 64
     local concrete_height = storage.ring_concrete_height or 32
     local base_half_width = storage.ring_base_half_width or 32
-    local pond_half = storage.ring_pond_half or 3
+    local pond_half = storage.ring_pond_half or 2
     -- geometry.lua 只返回语义值（'start'/'grown'/'space'/'void'），
     -- 真正的砖原型名查这张表。取不到时兜底成墙，绝不把 nil 塞进 set_tiles。
     local ring_tiles = storage.ring_tiles or {}

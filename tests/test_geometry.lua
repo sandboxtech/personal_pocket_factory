@@ -136,33 +136,39 @@ check('grown 场景: 新半宽外第一格(墙)',    tg(80, 0), 'void')
 check('grown 场景: 临空带仍是 space',      tg(50, 20), 'space')
 
 -- ══ tile_at：环心水池 ══
--- 出生点一片 6×6 浅水，半径 3（tile x/y 各从 -3 到 2）。
+-- 出生点一片 4×4 浅水，半径 2（tile x/y 各从 -2 到 1）。
 -- 存在的理由是【开局引导】：原版第一套电力是锅炉 + 蒸汽机，要水；
 -- 环里没水的话玩家造不出电，造不出电就点不亮实验室，点不亮实验室就研究不出太阳能，
 -- 于是连第一个红瓶都出不来。给水不破坏「环里没有资源」——一颗矿还是没有。
 --
 -- 水池判定必须【优先于】start/grown，否则会被中间那条可建带整片盖掉。
 local H, C, B = 64, 32, 32       -- ring_height / concrete_height / base_half_width
-local POND = 3                   -- 水池半径
+local POND = 2                   -- 水池半径
 
 check('水池中心',        geo.tile_at(0, 0, 64, H, C, B, POND), 'water')
-check('水池左上角',      geo.tile_at(-3, -3, 64, H, C, B, POND), 'water')
-check('水池右下角(闭区间内)', geo.tile_at(2, 2, 64, H, C, B, POND), 'water')
--- 左闭右开：x = 3 和 y = 3 已经在池子外
-check('水池右边界外',    geo.tile_at(3, 0, 64, H, C, B, POND), 'start')
-check('水池下边界外',    geo.tile_at(0, 3, 64, H, C, B, POND), 'start')
-check('水池左边界外',    geo.tile_at(-4, 0, 64, H, C, B, POND), 'start')
+check('水池左上角',      geo.tile_at(-2, -2, 64, H, C, B, POND), 'water')
+check('水池右下角(闭区间内)', geo.tile_at(1, 1, 64, H, C, B, POND), 'water')
+-- 左闭右开：x = 2 和 y = 2 已经在池子外
+check('水池右边界外',    geo.tile_at(2, 0, 64, H, C, B, POND), 'start')
+check('水池下边界外',    geo.tile_at(0, 2, 64, H, C, B, POND), 'start')
+check('水池左边界外',    geo.tile_at(-3, 0, 64, H, C, B, POND), 'start')
 
--- 【箱阵横排】：占 tile y = -4 和 y = 3，正好在池子上下两边的岸上，绝不能被水淹掉。
--- 这两行是整个箱阵的边界样本：x 取到最左(-3)和最右(2)，越界一格就该是水或普通地面。
-check('上行箱位左端是陆地', geo.tile_at(-3, -4, 64, H, C, B, POND), 'start')
-check('上行箱位右端是陆地', geo.tile_at(2, -4, 64, H, C, B, POND), 'start')
-check('下行箱位左端是陆地', geo.tile_at(-3, 3, 64, H, C, B, POND), 'start')
-check('下行箱位右端是陆地', geo.tile_at(2, 3, 64, H, C, B, POND), 'start')
--- 池子左右两侧留出陆地给海洋泵（泵自身必须站在陆地上，水在它面前）。
--- 上下两侧现在被箱阵占着，所以取水只能从左右来 —— 这两条断言就是那条路径的保证。
-check('池左侧是陆地',    geo.tile_at(-4, 0, 64, H, C, B, POND), 'start')
-check('池右侧是陆地',    geo.tile_at(3, 0, 64, H, C, B, POND), 'start')
+-- 【箱阵横排】：占 tile y = -5 和 y = 4，绝不能被水淹掉。
+-- 这两行是整个箱阵的边界样本：x 取到最左(-3)和最右(2)。
+check('上行箱位左端是陆地', geo.tile_at(-3, -5, 64, H, C, B, POND), 'start')
+check('上行箱位右端是陆地', geo.tile_at(2, -5, 64, H, C, B, POND), 'start')
+check('下行箱位左端是陆地', geo.tile_at(-3, 4, 64, H, C, B, POND), 'start')
+check('下行箱位右端是陆地', geo.tile_at(2, 4, 64, H, C, B, POND), 'start')
+
+-- 【池岸四面都是陆地】：海洋泵必须站在陆地上、泵口朝水。
+-- 上一版池子 6×6、箱行紧贴在 -4/3，上下岸一格不剩，泵只能从左右两侧架。
+-- 池子缩到 4×4、箱行退到 -5/4 之后，上下各空出 2 格（y = -4/-3 和 y = 2/3），
+-- 取水面从两面变四面 —— 下面这四条断言就是那两条新路径的保证
+-- （左右两侧已由上面的「水池左/右边界外」覆盖，不再重复断言）。
+check('池上岸紧邻一格是陆地', geo.tile_at(0, -3, 64, H, C, B, POND), 'start')
+check('池上岸第二格是陆地',   geo.tile_at(0, -4, 64, H, C, B, POND), 'start')
+check('池下岸紧邻一格是陆地', geo.tile_at(0, 2, 64, H, C, B, POND), 'start')
+check('池下岸第二格是陆地',   geo.tile_at(0, 3, 64, H, C, B, POND), 'start')
 
 -- 水池不能越过环的边界，也不能盖掉临空带和墙
 check('环外仍是墙',      geo.tile_at(-100, 0, 64, H, C, B, POND), 'void')

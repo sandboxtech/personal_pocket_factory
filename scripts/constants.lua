@@ -27,18 +27,22 @@ M.PUBLIC_LINK_ID = 0
 -- 否则玩家一进环就被挤到不知道哪儿去。它们原先散在 chests / pockets / gui.overview
 -- 三个文件的四处字面量里，改箱阵坐标时极容易漏掉出生点那一处。
 --
--- 【横排】：两行各 6 个，夹着中间那片 6×6 的环心水池。
+-- 【横排】：两行各 6 个，夹着中间那片 4×4 的环心水池。
 -- 箱阵是【12 个并行存取口】而不是 12 倍容量（同 link_id 共享一份库存），
 -- 12 个机械臂可以同时从同一批货里抓取，而单个箱子只能被有限几个机械臂围住。
 --
 -- 【为什么改成横排】：环带高度从 128 压到 64（中间可建带只有 32 格）之后，
 -- 竖排的 6 格高箱阵会吃掉可建带的近五分之一高度，而环是横向无限延伸的 ——
--- 竖直方向才是稀缺资源。转 90 度之后箱阵只占 2 格高，上下各留出 12 格完整的建设带。
+-- 竖直方向才是稀缺资源。转 90 度之后箱阵只占 2 格高，上下各留出完整的建设带。
 --
--- 【从上下两侧存取，不是从中间】：两行之间那 6×6 正好是环心水池（不可建造），
--- 所以机械臂站在箱阵【外侧】—— 上面那行往上抓，下面那行往下抓，
--- 各自面对一整片 12 格高的开阔地。水池夹在中间不碍事，它本来就只是取水点。
-M.CHEST_ROWS = {-4, 3}         -- 两行各自占的 tile y
+-- 【从上下两侧存取，不是从中间】：两行之间是环心水池（不可建造），
+-- 所以机械臂站在箱阵【外侧】—— 上面那行往上抓，下面那行往下抓，各自面对一整片开阔地。
+--
+-- 【箱阵和池岸之间留 2 格空地】：池子缩到 4×4（y 只占 -2..1）而箱行退到 y = -5 / 4 之后，
+-- y = -4/-3 和 y = 2/3 这四行是环心的空地。这不是浪费，是【把取水面从 2 面扩到 4 面】：
+-- 海洋泵必须站在陆地上、泵口朝水，原先上下两岸紧贴箱子，泵只能从左右两侧架；
+-- 现在四面都有岸，而且空出的这 2 格正好够摆下泵 + 一段管道。
+M.CHEST_ROWS = {-5, 4}         -- 两行各自占的 tile y
 M.CHEST_COL_FROM = -3          -- 每行 6 个，tile x 从这里
 M.CHEST_COL_TO = 2             -- 到这里（闭区间）
 -- 落点就在【环心】，也就是两行箱子中间那片浅水里。浅水可以走，不会卡住玩家。
@@ -78,7 +82,7 @@ M.TUNABLES = {
     {key = 'ring_base_half_width', default = 32, group = 'ring', applies = 'repaint'},
     {key = 'ring_per_level', default = 16, group = 'ring', applies = 'grow'},
     {key = 'ring_level_bonus', default = 2, group = 'ring', applies = 'grow'},
-    {key = 'ring_pond_half', default = 3, group = 'ring', applies = 'repaint'},
+    {key = 'ring_pond_half', default = 2, group = 'ring', applies = 'repaint'},
     {key = 'ring_public_hours', default = 30, group = 'lifecycle', applies = 'live'},
     {key = 'ring_delete_multiple', default = 3, group = 'lifecycle', applies = 'live'},
     {key = 'ring_min_hours', default = 3, group = 'lifecycle', applies = 'live'},

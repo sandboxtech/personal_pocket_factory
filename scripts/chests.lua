@@ -23,7 +23,8 @@ local LINKED = 'linked-chest'
 -- 12 个同 link_id 的箱子共享的是【同一个库存】，所以这不是 12 倍容量，
 -- 是 12 个并行存取口 —— 12 个机械臂可以同时从同一批货里抓取，
 -- 而单个箱子只能被有限几个机械臂围住。用箱子数量换吞吐量，不是换容量。
--- 两行之间夹着环心水池，机械臂站在箱阵外侧（上下两面）取货，理由见 constants 那边的注释。
+-- 两行之间夹着环心水池（中间还留了 2 格岸给海洋泵），机械臂站在箱阵外侧（上下两面）取货，
+-- 理由见 constants 那边的注释。
 local function array_positions()
     local out = {}
     for _, y in ipairs(constants.CHEST_ROWS) do
