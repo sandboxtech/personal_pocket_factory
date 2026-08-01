@@ -74,6 +74,27 @@ local function sync_label(surface, player)
     surface.localised_name = player.name
 end
 
+-- 戴森环永昼。
+--
+-- 【这不只是好看】：环里【一颗矿都没有】，第一套电力只能是水池边的锅炉蒸汽机，
+-- 之后的长期电力实际上只有太阳能这一条路（燃料和核电都要从公共星球背回来）。
+-- 而太阳能一到夜里就归零 —— 在原版这靠蓄电池解决，但那意味着新玩家必须先攒够
+-- 蓄电池的产能，才敢让工厂在无人值守时继续跑。对一个「离线也在计时」的场景来说，
+-- 这道门槛卡的正是最不该被卡的那批人。
+--
+-- 永昼把这道门槛整个移走：太阳能板 24 小时满出力，不需要蓄电池也不会半夜停摆。
+-- 代价是蓄电池在环内失去意义，这是明确接受的 —— 公共星球上仍然要用。
+--
+-- 用 always_day 而不是 freeze_daytime + daytime = 0：后者只是把时钟停住，
+-- 语义上是"时间不走了"；always_day 是引擎专门的"太阳恒亮"开关
+-- （文档原话 "the sun will always shine"），意图更直白，也不会被别处改 daytime 打断。
+--
+-- 和 sync_label 一样【每次 ensure 都重设】：老环是在这个功能之前建的，
+-- 靠这里补上；配置改了也能靠周期任务铺开，不需要重建环。
+local function sync_daylight(surface)
+    surface.always_day = storage.ring_always_day ~= false
+end
+
 -- 只负责把 surface 本身建出来。箱阵、涂砖、storage 记账都不在这里，
 -- 那些是【每次 ensure 都要跑一遍】的幂等步骤，见 M.ensure。
 local function create_surface(player)
@@ -155,6 +176,7 @@ function M.ensure(player)
     -- 顺序上必须排在上面 ring_state 兜底之后 —— ring_should_hide 要读它。
     sync_label(surface, player)
     sync_visibility(surface, player.name)
+    sync_daylight(surface)
 
     if storage.debug then
         for _, p in pairs(game.connected_players) do
@@ -350,6 +372,9 @@ function M.tick_lifecycle()
         local surface = M.get(player)
         if surface and surface.valid then
             sync_visibility(surface, player.name)
+            -- 永昼一并兜底：这个功能上线时已经存在的环没走过 ensure，
+            -- 靠这里补上，不需要环主重新进环、也不需要重建环。
+            sync_daylight(surface)
         end
 
         if not player.connected then

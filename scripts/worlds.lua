@@ -24,6 +24,8 @@ local util = require('scripts.util')
 -- noise 是纯函数模块（不 require 任何东西、不碰 storage/game），只用它的 hash01
 -- 从种子确定性地派生本轮气候偏置。不成环。
 local noise = require('scripts.noise')
+-- events 是纯总线（只 require 引擎自带的东西），谁都可以依赖它，不成环。
+local events = require('scripts.events')
 
 local M = {}
 
@@ -263,6 +265,40 @@ local function evacuate(surface)
     end
 end
 
+-- 把这颗星球的产量/击杀/建造曲线归零。
+--
+-- 【surface.clear() 不清统计】：它只删实体和区块，产量曲线原样留着。不清的话，
+-- 一颗星球的生产图是十几轮世界首尾相接 —— 每轮重置那一刻断崖式归零再重新爬起来，
+-- 既看不出本轮到底产了多少，也看不出跟上一轮比是好是坏。
+--
+-- 【2.0 的统计是按 force × surface × 类别拆开的】，没有一键清空：
+-- 1.1 的 LuaForce.clear_statistics() 已经不存在，现在要 4 类各取一个
+-- LuaFlowStatistics 再调它的 clear()。这个拆分对本场景反而是好事 ——
+-- 清 Nauvis 的统计【碰不到任何人戴森环里的曲线】。玩家在环里的生产是长期资产，
+-- 星球是两小时一轮的消耗品，这两条线本来就不该混在一张图里。
+--
+-- 【必须等 clear 真正做完，所以挂在 on_surface_cleared 上而不是紧跟 clear() 之后】：
+-- surface.clear(true) 是【异步】的，调用返回时区块还没清完。紧跟着清统计的话，
+-- 清空过程中万一产生任何计数，都会写在我们清完之后 —— 顺序看着对，实际是反的。
+-- 挂事件则没有这个疑问：引擎结算完才触发，那时统计里再没有本轮的东西会进来。
+local STATISTIC_GETTERS = {
+    'get_item_production_statistics',
+    'get_fluid_production_statistics',
+    'get_kill_count_statistics',
+    'get_entity_build_count_statistics',
+}
+local function clear_statistics(surface)
+    local force = game.forces.player
+    if not (force and force.valid) then return end
+    for _, getter in ipairs(STATISTIC_GETTERS) do
+        -- pcall 包住：统计只是观感，取不到某一类不该让整个世界重置流程中断。
+        local ok, err = pcall(function() force[getter](force, surface).clear() end)
+        if not ok then
+            log('[pw] 清统计失败 ' .. getter .. '：' .. tostring(err))
+        end
+    end
+end
+
 -- 重置单个公共世界：撤人 → 套边界 → 清空 → 排下一轮。
 -- surface.clear(true) 是异步的，引擎会在结算后触发 on_surface_cleared，
 -- 地形按新的 map_gen_settings 重新生成。
@@ -490,6 +526,23 @@ function M.tech_loss_time_left()
     if not at then return nil end
     return at - game.tick
 end
+
+-- 清空结算完毕 → 把这颗星球的统计归零。
+--
+-- 【只认公共星球】：事件对任何被 clear 的 surface 都会触发。戴森环目前不走 clear
+-- （删环用的是 delete_surface），但这个判断不能省 —— 将来任何人给环加一条 clear 路径，
+-- 都不该顺带把那个人的长期产量曲线抹掉。
+local function on_surface_cleared(event)
+    local surface = game.surfaces[event.surface_index]
+    if not (surface and surface.valid) then return end
+    for _, name in ipairs(constants.PUBLIC_PLANETS) do
+        if surface.name == name then
+            clear_statistics(surface)
+            return
+        end
+    end
+end
+events.on(defines.events.on_surface_cleared, events.safe('worlds_stats', on_surface_cleared))
 
 -- 送玩家去某个公共世界的出生点。
 function M.travel(player, planet_name)

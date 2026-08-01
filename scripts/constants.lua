@@ -87,6 +87,7 @@ M.TUNABLES = {
     {key = 'ring_delete_multiple', default = 3, group = 'lifecycle', applies = 'live'},
     {key = 'ring_min_hours', default = 3, group = 'lifecycle', applies = 'live'},
     {key = 'ring_hide_private', default = true, group = 'lifecycle', applies = 'live'},
+    {key = 'ring_always_day', default = true, group = 'ring', applies = 'live'},
     {key = 'public_size', default = 2048, group = 'world', applies = 'reset'},
     {key = 'dropoff_limit', default = 12, group = 'world', applies = 'live'},
     {key = 'world_climate_swing', default = 0.35, group = 'world', applies = 'reset'},
