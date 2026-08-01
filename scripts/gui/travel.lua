@@ -1,6 +1,8 @@
 local constants = require('scripts.constants')
 local pockets = require('scripts.pockets')
 local worlds = require('scripts.worlds')
+-- exp 只依赖 constants/geometry/ring/stamina/util，都不反向依赖 gui，顶层 require 不成环。
+local exp = require('scripts.exp')
 local util = require('scripts.util')
 local popup = require('scripts.gui.popup')
 
@@ -30,6 +32,17 @@ function M.show(player)
         inner.add{type = 'label', caption = {'pw.travel-tech-timer', minutes}}
     else
         inner.add{type = 'label', caption = {'pw.travel-tech-unscheduled'}}
+    end
+
+    -- 自动兑换倒计时。和科技漏水一样【所有人都看得到】：
+    -- 它决定"我现在要不要赶紧把收货箱里的瓶子用机械臂拉进实验室"，
+    -- 是一条看了就能改变当下动作的信息，不是给老玩家看的优化细节。
+    local convert_left = exp.auto_convert_time_left()
+    if convert_left then
+        local minutes = math.max(0, math.floor(convert_left / constants.min_to_tick))
+        inner.add{type = 'label', caption = {'pw.travel-convert-timer', minutes}}
+    else
+        inner.add{type = 'label', caption = {'pw.travel-convert-unscheduled'}}
     end
 
     for _, name in ipairs(constants.PUBLIC_PLANETS) do

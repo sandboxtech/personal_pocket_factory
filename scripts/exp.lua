@@ -155,6 +155,21 @@ end
 -- 变成了吞吐量竞争：他可以架机械臂从收货箱往实验室拉科技瓶，跟自动兑换抢同一批货，
 -- 谁的机械臂快、数量多，谁就能在瓶子被自动兑换吃掉之前先拉走——这个决策落在
 -- 机械臂速度和数量上，比"往哪个箱子送"更符合 Factorio 的玩法核心。
+-- 距下一次自动兑换还剩多少 tick，供传送页面做倒计时。没排期返回 nil。
+--
+-- 和 worlds.tech_loss_time_left 同一套路：storage.auto_convert_next_at 由
+-- scripts/tick.lua 的调度器写，本模块只读。方向必须是这个 ——
+-- tick.lua 在顶层 require 了 exp（要调 tick_auto_convert），
+-- Factorio 又禁止函数体内 require 来绕开循环，所以 exp 绝不能反过来 require tick。
+--
+-- 不在 constants.ensure_defaults 里预置默认值：预置一个假时刻的话，
+-- 调度器还没跑第一轮时 UI 会显示一个从未生效过的倒计时，比"尚未排期"更误导人。
+function M.auto_convert_time_left()
+    local at = storage.auto_convert_next_at
+    if not at then return nil end
+    return at - game.tick
+end
+
 function M.tick_auto_convert()
     storage.ring_state = storage.ring_state or {}
     for _, player in pairs(game.players) do

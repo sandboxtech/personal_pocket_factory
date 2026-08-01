@@ -83,6 +83,16 @@ commands.add_command('ring-delete', {'pw.cmd-ring-delete-help'}, function(comman
 
     reply({'pw.cmd-ring-deleted', target_name})
     local who = caller and caller.name or {'pw.console-label'}
+
+    -- 【当事人在线的话，必须告诉他】。
+    -- 老版本对在线目标直接拒绝执行，所以不存在这个问题；那条限制去掉之后，
+    -- 一个在环里的人会随表面删除而死亡、然后在重新长出来的空环里复活，
+    -- 全程没有任何解释 —— 从他的视角看就是"莫名其妙死了一次，工厂全没了"。
+    -- 这条提示不是礼貌，是让一个不可撤销的操作至少有个来源可查。
+    if target.connected then
+        target.print({'pw.ring-deleted-by-admin', who})
+    end
+
     for _, p in pairs(game.connected_players) do
         if p.admin and p ~= caller then
             p.print({'pw.cmd-ring-deleted-broadcast', target_name, who})

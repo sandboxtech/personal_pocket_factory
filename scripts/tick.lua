@@ -59,10 +59,16 @@ local CYCLE_TASKS = {
 -- 反过来 require 本文件，否则就是模块级循环依赖。于是选择反方向的耦合：
 -- 调度器（本文件）知道 worlds 那个字段的存在并负责写它，worlds 只管读，
 -- 依赖方向保持单向（tick → worlds），不新增边。
+-- 需要被 UI 读到倒计时的任务，各自镜像到一个 storage 字段。
+-- 加一项就在这张表里加一行，不用改下面的调度逻辑。
+local MIRRORED = {
+    tech_loss = 'tech_loss_next_at',
+    auto_convert = 'auto_convert_next_at',
+}
+
 local function sync_task_mirror(key, at)
-    if key == 'tech_loss' then
-        storage.tech_loss_next_at = at
-    end
+    local field = MIRRORED[key]
+    if field then storage[field] = at end
 end
 
 -- 排好某个任务的下一次触发 tick（仅当它还没排过期时，幂等）。
