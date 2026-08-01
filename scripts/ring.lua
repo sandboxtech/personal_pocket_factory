@@ -79,8 +79,8 @@ end
 -- （白费一次 set_tiles），要么抛错被 events 的 pcall 吞掉、留下涂错却没人发现的砖。
 -- on_chunk_generated 每次只传本区块的范围，apply_growth 逐区块行调用，都是为了这条。
 function M.paint_area(surface, x_from, x_to, y_from, y_to, half_width)
-    local ring_height = storage.ring_height or 128
-    local concrete_height = storage.ring_concrete_height or 64
+    local ring_height = storage.ring_height or 64
+    local concrete_height = storage.ring_concrete_height or 32
     local base_half_width = storage.ring_base_half_width or 32
     local pond_half = storage.ring_pond_half or 3
     -- geometry.lua 只返回语义值（'start'/'grown'/'space'/'void'），
@@ -136,7 +136,7 @@ function M.apply_growth(player)
     local new_half = M.half_width_of(player.name)
     if new_half <= old_half then return false end
 
-    local ring_height = storage.ring_height or 128
+    local ring_height = storage.ring_height or 64
     local y_half = math.floor(ring_height / 2)
 
     -- 新增竖带需要覆盖两种区块：新生成的（on_chunk_generated 会自动涂，但那时机不确定，

@@ -17,17 +17,17 @@ local M = {}
 local WOOD = 'wooden-chest'
 local LINKED = 'linked-chest'
 
--- 12 个收货箱的位置：两列 × 六行，以原点双向对称。坐标来自 constants
+-- 12 个收货箱的位置：两行 × 六列（横排），以原点双向对称。坐标来自 constants
 -- （和玩家进环的落点放在一起定义，改箱阵坐标时不会漏掉出生点，见那里的注释）。
 --
 -- 12 个同 link_id 的箱子共享的是【同一个库存】，所以这不是 12 倍容量，
 -- 是 12 个并行存取口 —— 12 个机械臂可以同时从同一批货里抓取，
 -- 而单个箱子只能被有限几个机械臂围住。用箱子数量换吞吐量，不是换容量。
--- 两列之间特意空出 6 格，就是留给机械臂和传送带把货接出去的地方。
+-- 两行之间夹着环心水池，机械臂站在箱阵外侧（上下两面）取货，理由见 constants 那边的注释。
 local function array_positions()
     local out = {}
-    for _, x in ipairs(constants.CHEST_COLUMNS) do
-        for y = constants.CHEST_ROW_FROM, constants.CHEST_ROW_TO do
+    for _, y in ipairs(constants.CHEST_ROWS) do
+        for x = constants.CHEST_COL_FROM, constants.CHEST_COL_TO do
             out[#out + 1] = {x = x + 0.5, y = y + 0.5}
         end
     end

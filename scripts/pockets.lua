@@ -1,4 +1,4 @@
--- 戴森环：每个玩家一个专属 surface，一条高 128 的环带，没有任何资源。
+-- 戴森环：每个玩家一个专属 surface，一条高 64 的环带（中间 32 格可建、上下各 16 格临空），没有任何资源。
 --
 -- 定位：戴森环是【加工厂】，公共世界是【矿场】。
 -- 环里一颗矿都没有，所有原料必须从公共世界运回来（靠关联箱，见 chests.lua）。
@@ -79,7 +79,7 @@ local function create_surface(player)
     local seed = (player.index * 7919 + 104729) % 2147483647
     local surface = game.create_surface(
         M.surface_name(player),
-        constants.ring_map_gen(seed, storage.ring_height or 128))
+        constants.ring_map_gen(seed, storage.ring_height or 64))
 
     surface.always_day = true        -- 永昼：这里是工作间，不需要夜战和照明负担
     surface.freeze_daytime = true
@@ -122,7 +122,7 @@ function M.ensure(player)
     -- 同步生成出生区，玩家马上就要落地，异步排队会落进还没生成的区块。
     -- 逐区块请求（ring.ensure_chunks），不给大半径——半径是正方形，横向无边界会真的生成出去。
     local half = ring.half_width_of(player.name)
-    local ring_height = storage.ring_height or 128
+    local ring_height = storage.ring_height or 64
     local y_half = math.floor(ring_height / 2)
     ring.ensure_chunks(surface, -half, half, -y_half, y_half)
 

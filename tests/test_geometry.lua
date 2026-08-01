@@ -94,7 +94,8 @@ end
 -- ══ tile_at ══
 -- 约定：tile 坐标 x 占据 [x, x+1)，所以有效范围是 x ∈ [-half, half)
 -- 返回值现在是语义值：'start' / 'grown' / 'space' / 'void'（不是具体砖名，见 geometry.lua 顶部注释）
-local HW, RH, CH, BHW = 32, 128, 64, 32
+-- 环高 64 = 中间 32 格可建带 + 上下各 16 格临空带。
+local HW, RH, CH, BHW = 32, 64, 32, 32
 local function t(x, y) return geo.tile_at(x, y, HW, RH, CH, BHW) end
 
 check('原点是初始区域',      t(0, 0), 'start')
@@ -103,19 +104,19 @@ check('右边界外第一格',      t(32, 0), 'void')
 check('左边界内第一格',      t(-32, 0), 'start')
 check('左边界外第一格',      t(-33, 0), 'void')
 
-check('混凝土带上沿(含)',    t(0, -32), 'start')
-check('混凝土带上沿外',      t(0, -33), 'space')
-check('混凝土带下沿(不含)',  t(0, 32), 'space')
-check('混凝土带下沿内',      t(0, 31), 'start')
+check('混凝土带上沿(含)',    t(0, -16), 'start')
+check('混凝土带上沿外',      t(0, -17), 'space')
+check('混凝土带下沿(不含)',  t(0, 16), 'space')
+check('混凝土带下沿内',      t(0, 15), 'start')
 
-check('环上沿内',            t(0, -64), 'space')
-check('环上沿外',            t(0, -65), 'void')
-check('环下沿内',            t(0, 63), 'space')
-check('环下沿外',            t(0, 64), 'void')
+check('环上沿内',            t(0, -32), 'space')
+check('环上沿外',            t(0, -33), 'void')
+check('环下沿内',            t(0, 31), 'space')
+check('环下沿外',            t(0, 32), 'void')
 
 -- 横向墙优先于纵向分带：环外就是环外，不管 y 在哪一段
 check('横向越界压过纵向分带', t(100, 0), 'void')
-check('横向越界压过临空带',   t(100, 40), 'void')
+check('横向越界压过临空带',   t(100, 20), 'void')
 
 -- ══ tile_at：初始区域 vs 升级长出来的区域（base_half_width 语义）══
 -- half_width == base_half_width 时，整条混凝土带都还是 'start'，没有 'grown' 的空间。
@@ -132,7 +133,7 @@ check('grown 场景: base 右边界外第一格',   tg(32, 0), 'grown')
 check('grown 场景: base 左边界外第一格',   tg(-33, 0), 'grown')
 check('grown 场景: 新半宽内最后一格',      tg(79, 0), 'grown')
 check('grown 场景: 新半宽外第一格(墙)',    tg(80, 0), 'void')
-check('grown 场景: 临空带仍是 space',      tg(50, 40), 'space')
+check('grown 场景: 临空带仍是 space',      tg(50, 20), 'space')
 
 -- ══ tile_at：环心水池 ══
 -- 出生点一片 6×6 浅水，半径 3（tile x/y 各从 -3 到 2）。
@@ -141,7 +142,7 @@ check('grown 场景: 临空带仍是 space',      tg(50, 40), 'space')
 -- 于是连第一个红瓶都出不来。给水不破坏「环里没有资源」——一颗矿还是没有。
 --
 -- 水池判定必须【优先于】start/grown，否则会被中间那条可建带整片盖掉。
-local H, C, B = 128, 64, 32     -- ring_height / concrete_height / base_half_width
+local H, C, B = 64, 32, 32       -- ring_height / concrete_height / base_half_width
 local POND = 3                   -- 水池半径
 
 check('水池中心',        geo.tile_at(0, 0, 64, H, C, B, POND), 'water')
@@ -152,16 +153,20 @@ check('水池右边界外',    geo.tile_at(3, 0, 64, H, C, B, POND), 'start')
 check('水池下边界外',    geo.tile_at(0, 3, 64, H, C, B, POND), 'start')
 check('水池左边界外',    geo.tile_at(-4, 0, 64, H, C, B, POND), 'start')
 
--- 收货箱阵占 tile x = -4 和 x = 3，正好在池子两侧的岸上，绝不能被水淹掉
-check('左列箱位是陆地',  geo.tile_at(-4, -3, 64, H, C, B, POND), 'start')
-check('右列箱位是陆地',  geo.tile_at(3, 2, 64, H, C, B, POND), 'start')
--- 池子上下也要留出陆地给海洋泵站（泵自身必须站在陆地上，水在它面前）
-check('池上方是陆地',    geo.tile_at(0, -4, 64, H, C, B, POND), 'start')
-check('池下方是陆地',    geo.tile_at(0, 3, 64, H, C, B, POND), 'start')
+-- 【箱阵横排】：占 tile y = -4 和 y = 3，正好在池子上下两边的岸上，绝不能被水淹掉。
+-- 这两行是整个箱阵的边界样本：x 取到最左(-3)和最右(2)，越界一格就该是水或普通地面。
+check('上行箱位左端是陆地', geo.tile_at(-3, -4, 64, H, C, B, POND), 'start')
+check('上行箱位右端是陆地', geo.tile_at(2, -4, 64, H, C, B, POND), 'start')
+check('下行箱位左端是陆地', geo.tile_at(-3, 3, 64, H, C, B, POND), 'start')
+check('下行箱位右端是陆地', geo.tile_at(2, 3, 64, H, C, B, POND), 'start')
+-- 池子左右两侧留出陆地给海洋泵（泵自身必须站在陆地上，水在它面前）。
+-- 上下两侧现在被箱阵占着，所以取水只能从左右来 —— 这两条断言就是那条路径的保证。
+check('池左侧是陆地',    geo.tile_at(-4, 0, 64, H, C, B, POND), 'start')
+check('池右侧是陆地',    geo.tile_at(3, 0, 64, H, C, B, POND), 'start')
 
 -- 水池不能越过环的边界，也不能盖掉临空带和墙
 check('环外仍是墙',      geo.tile_at(-100, 0, 64, H, C, B, POND), 'void')
-check('临空带不受影响',  geo.tile_at(0, 40, 64, H, C, B, POND), 'space')
+check('临空带不受影响',  geo.tile_at(0, 20, 64, H, C, B, POND), 'space')
 
 -- 不传 pond_half（或传 0）时行为和加水池之前完全一致，老调用点不受影响
 check('无水池参数时环心是 start', geo.tile_at(0, 0, 64, H, C, B), 'start')

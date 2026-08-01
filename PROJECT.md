@@ -6,7 +6,7 @@
 
 ## 核心玩法
 
-每个玩家有一条专属的戴森环（独立 surface，高 128 tile、宽度随经验增长的环带），环里一颗矿
+每个玩家有一条专属的戴森环（独立 surface，高 64 tile、宽度随经验增长的环带），环里一颗矿
 都没有。资源全在五个公共世界（Space Age 的五颗真星球）里，各自独立周期重置。玩家去公共世界
 铺关联箱当投递口，货物自动流回戴森环正中央固定的收货箱阵。收货箱阵按 12 种科技瓶的种类分别
 计入经验，经验决定环能长多宽，是全场景唯一跨重置保留的进度。公共世界重置时还会随机撤销全服
@@ -40,7 +40,7 @@ v1 的口袋世界宽高都用 `MapGenSettings.width/height` 这种引擎级硬�
 
 现在的方案（`scripts/ring.lua` + `scripts/geometry.lua`）：
 
-- **纵向**仍用硬边界：`map_gen_settings.height = 128`，`|y| >= 64` 的区块引擎根本不生成，
+- **纵向**仍用硬边界：`map_gen_settings.height = 64`，`|y| >= 32` 的区块引擎根本不生成，
   零成本零代码，白拿一份高度上限。
 - **横向**改成无限（`width = 0`），交给 `on_chunk_generated` 手工涂 `out-of-map` 的墙。
   涂出来的墙玩家走不过去，带不动引擎往外生成，唯一代价是玩家站在边缘时引擎会顺手预生成
@@ -49,7 +49,7 @@ v1 的口袋世界宽高都用 `MapGenSettings.width/height` 这种引擎级硬�
 `geometry.lua` 是不碰任何 Factorio 全局的纯函数模块，环的宽度、等级、每格该铺哪种语义砖
 全在这里算，可以用 `lua5.4 tests/test_geometry.lua` 脱离游戏跑单测。`ring.lua` 只负责把
 这里算出的语义值查表（`storage.ring_tiles`）换成真实砖名再 `set_tiles`，且逐区块涂（不是
-一次涂整条 128 高的带），避免往还未生成的兄弟区块里写 tile。
+一次涂整条 64 高的带），避免往还未生成的兄弟区块里写 tile。
 
 ### 四、12 种经验分开记账
 
@@ -177,7 +177,7 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | --- | --- | --- |
 | `stamina_ticks_per_point` / `stamina_pending_cap` / `stamina_balance_cap` / `stamina_initial_multiple` | 体力：每点对应多少 tick / 可领取池点数上限 / 体力池点数上限 / 新玩家初始体力池 = pending_cap × 这个倍数 | 60 / 100000 / 10000000 / 10 |
 | `quality_exp` | 品质 → 经验系数 | normal=1, uncommon=3, rare=5, epic=7, legendary=9 |
-| `ring_height` / `ring_concrete_height` / `ring_base_half_width` / `ring_per_level` | 环带总高 / 中间可建带高度 / 起步半宽 / 每级两侧各外推多少 tile | 128 / 64 / 32 / 16 |
+| `ring_height` / `ring_concrete_height` / `ring_base_half_width` / `ring_per_level` | 环带总高 / 中间可建带高度 / 起步半宽 / 每级两侧各外推多少 tile | 64 / 32 / 32 / 16 |
 | `ring_tiles` | 语义砖名（start/grown/space/void）→ 真实砖原型名 | 见 `constants.lua` |
 | `ring_public_hours` / `ring_delete_multiple` / `ring_min_hours` | 离线多久变公共（老玩家上限）/ 删除阈值是它的几倍 / 缩放后的下限 | 30 / 3 / 3 |
 | `ring_hide_private` | 私人环是否从遥控视角平面列表隐藏（公共环一律显示） | true |
