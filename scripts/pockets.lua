@@ -6,6 +6,8 @@
 local constants = require('scripts.constants')
 local ring = require('scripts.ring')
 local chests = require('scripts.chests')
+-- util 只依赖 constants 和 ring，两者都不反向依赖 pockets，顶层 require 不成环。
+local util = require('scripts.util')
 
 local M = {}
 
@@ -294,12 +296,13 @@ end
 
 -- 这个玩家的公共化阈值（tick）。新人按累计在线时长缩放，投满 ring_public_hours
 -- 之后才拿到老玩家那个固定上限——「你投入了多久，就受多久保护」。
--- player.online_time 是这个存档里该玩家全部会话累计的在线 tick 数（见 util.is_veteran
--- 旁的说明，已核实存在），新建角色是 0，靠 ring_min_hours 兜住下限，不会一离线就立刻公共化。
+-- 时长走 util.played_hours 而不是直接读 player.online_time：那是一份只增不减的快照，
+-- 挡住 game.reset_time_played()（每轮 Nauvis 重置会调）可能带来的归零，理由见那边的注释。
+-- 新建角色是 0，靠 ring_min_hours 兜住下限，不会一离线就立刻公共化。
 function M.public_threshold(player)
     local cap_hours = storage.ring_public_hours or 30
     local min_hours = storage.ring_min_hours or 3
-    local played_hours = (player.online_time or 0) / constants.hour_to_tick
+    local played_hours = util.played_hours(player)
     local hours = math.max(min_hours, math.min(cap_hours, played_hours))
     return hours * constants.hour_to_tick
 end

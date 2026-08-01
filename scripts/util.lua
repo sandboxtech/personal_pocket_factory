@@ -49,8 +49,34 @@ end
 -- 存档历史时可能是 0，此时按新人处理，不会因为字段缺失而报错。
 function M.is_veteran(player)
     if not player then return false end
-    local hours = storage.detail_hours or 6
-    return (player.online_time or 0) >= hours * constants.hour_to_tick
+    return M.played_hours(player) >= (storage.detail_hours or 6)
+end
+
+-- 累计在线小时数。【只增不减】。
+--
+-- 【为什么不直接读 player.online_time】：每轮 Nauvis 重置会调 game.reset_time_played()
+-- （见 worlds.reset_world）。引擎文档对它只有一句 "Resets the amount of time played
+-- for this map"，没说清 per-player 的 online_time 算不算在 "this map" 里面。
+--
+-- 万一算，后果是全服每两小时集体退回新人档：戴森环的公共化/回收阈值都按累计在线时长
+-- 缩放，归零就意味着人人都变成「3 小时转公共、9 小时回收」。这种故障玩家完全无法自查，
+-- 体验上只会是"我环怎么突然没了"，而且发生在【所有人】身上。
+--
+-- 所以这里存一份只增不减的快照，取两者较大值 —— 无论引擎那边到底怎么算，缩放都不会倒退。
+-- 代价是 storage 里多一张按玩家名索引的小表（每人一个浮点数），完全值得。
+--
+-- 【为什么写在读取函数里而不是周期任务里】：这样"快照会不会过期"根本不成为一个问题 ——
+-- 每一个关心时长的地方都会顺手把它推到最新，没有"某条路径忘了刷新"的可能。
+function M.played_hours(player)
+    if not player then return 0 end
+    local live = (player.online_time or 0) / constants.hour_to_tick
+    storage.played_hours = storage.played_hours or {}
+    local kept = storage.played_hours[player.name] or 0
+    if live > kept then
+        storage.played_hours[player.name] = live
+        return live
+    end
+    return kept
 end
 
 -- 星球名 → 带图标的本地化标签，形如 "[planet=nauvis] Nauvis"。

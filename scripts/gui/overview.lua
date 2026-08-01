@@ -56,7 +56,9 @@ local function build_rows()
     -- 但让它确定下来不花任何代价，而且省得以后有人把这份顺序拿去写进 storage。
     table.sort(rows, function(a, b)
         if a.player.connected ~= b.player.connected then return a.player.connected end
-        local ta, tb = a.player.online_time or 0, b.player.online_time or 0
+        -- 同样走快照：万一 game.reset_time_played() 会清 online_time，
+        -- 直接读它会让全服排序在每轮 Nauvis 重置后集体塌成按名字排。
+        local ta, tb = util.played_hours(a.player), util.played_hours(b.player)
         if ta ~= tb then return ta > tb end
         return a.player.name < b.player.name
     end)
@@ -166,7 +168,8 @@ local function render_row(grid, viewer, row)
 
     -- ③ 环的细节：只给老玩家。新人知道「这人有条环、能不能进」就够了。
     if ring_entry and veteran then
-        local played = math.floor((player.online_time or 0) / constants.hour_to_tick)
+        -- 和阈值缩放读同一个来源，否则界面显示的时长会和实际保护时长对不上。
+        local played = math.floor(util.played_hours(player))
         grid.add{type = 'label', caption = {'pw.overview-ring-detail',
             ring_entry.level, ring_entry.half_width * 2, played}}
     else

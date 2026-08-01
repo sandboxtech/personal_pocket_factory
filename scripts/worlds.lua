@@ -284,6 +284,23 @@ function M.reset_world(planet_name)
 
     storage.world_run[planet_name] = next_run
 
+    -- Nauvis 是新人的起点，也是节奏最快的那颗星球（两小时一轮）。每轮把地图的
+    -- 游玩时长归零，让存档看起来永远是"刚开的服"，而不是一个越滚越旧的数字。
+    --
+    -- 【只对 Nauvis 做】：五颗星球都做的话它每小时要被重置好几次，那个计数就彻底没有意义了。
+    --
+    -- 【本场景不读 game.ticks_played，所以这不影响任何机制】—— 全部时长判定
+    -- （戴森环公共化/回收阈值、老玩家界面）走的是 util.played_hours，
+    -- 那是一份【只增不减】的快照，正是为了挡住这一行可能的副作用而存在的：
+    -- 引擎文档只说 reset_time_played "重置这张地图的游玩时长"，没说清 per-player 的
+    -- online_time 算不算在内。快照让答案是什么都无所谓。详见 util.played_hours 的注释。
+    if planet_name == 'nauvis' then
+        local ok, err = pcall(function() game.reset_time_played() end)
+        if not ok then
+            log('[pw] reset_time_played 失败（不影响重置本身）：' .. tostring(err))
+        end
+    end
+
     storage.world_reset_at = storage.world_reset_at or {}
     storage.world_reset_at[planet_name] = game.tick + M.period_of(planet_name)
 
