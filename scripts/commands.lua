@@ -117,13 +117,8 @@ end)
 -- 【不带参数只做预览，不删任何东西】。Factorio 控制台没有撤销，而这条指令一次抹掉
 -- 全服所有人的工厂，破坏面比 /ring-delete 大一个数量级，值得多按一次回车。
 --
--- 【一视同仁，不跳过在线玩家】。一个「号称删除所有、实际悄悄跳过在线玩家」的指令
--- 最危险：管理员以为重置完了，其实没有。要么全做要么不做，中间状态最坑人。
--- 当时在环里的人会随表面删除而死亡，然后正常复活回自己（重新长出来的）环里，
--- 这条路径不需要脚本额外做什么，见 pockets.delete_all_rings 的注释。
---
--- 预览里仍然单独报一下「其中几条的主人在线」——不是因为要区别对待，
--- 而是那几个人会当场掉背包，管理员按下 confirm 前有权知道这件事。
+-- 【一视同仁，不跳过在线玩家】：「号称删除所有、实际悄悄跳过在线的」最危险，
+-- 管理员会以为重置完了。预览里单独报一下有几条的主人在线，因为那几个人会当场掉背包。
 commands.add_command('ring-delete-all', {'pw.cmd-ring-delete-all-help'}, function(command)
     local caller = command.player_index and game.players[command.player_index]
     if caller and not caller.admin then

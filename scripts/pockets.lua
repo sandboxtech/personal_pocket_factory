@@ -85,17 +85,10 @@ local function create_surface(player)
     surface.freeze_daytime = true    -- 永昼本身由 sync_daylight 按配置设
     surface.show_clouds = false
 
-    -- 关掉污染。
-    --
-    -- 注意赋的是 {} 不是 nil ——
-    -- Pollutant 概念是 { pollutant = LuaAirbornePollutantPrototype? }，
-    -- 文档写明 "If nil, pollution is disabled"，
-    -- 而 override_pollution_type = nil 的含义是【不覆盖、跟随默认】，是个静默的 no-op。
-    -- 因为 Lua 里 {pollutant = nil} 求值就是空表 {}，两种写法长得几乎一样、含义完全相反。
-    --
-    -- 但这个字段是较新版本才有的，老版本上赋值会直接抛错。
-    -- 所以用 pcall 包起来，失败就退回「不关污染」并写 log —— 污染对本场景没有玩法影响
-    -- （环里 no_enemies_mode = true，没有虫子可招），关掉只是省 UPS，不值得为它崩服。
+    -- 关掉污染。【赋 {} 不是 nil】：Pollutant 是 { pollutant = ... }，文档说
+    -- "If nil, pollution is disabled"；而字段本身 = nil 是"不覆盖"，静默 no-op。
+    -- 两种写法长得几乎一样、含义完全相反。
+    -- pcall 是因为这个字段较新，老版本赋值会抛错，而它只省 UPS、不影响玩法。
     local ok = pcall(function() surface.override_pollution_type = {} end)
     if not ok then
         log('[pw] 本版本 LuaSurface 无 override_pollution_type，戴森环污染未关闭')
