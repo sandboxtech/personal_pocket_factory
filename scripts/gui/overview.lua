@@ -80,8 +80,8 @@ local function render_my_ship(container, player)
         if ships.is_ready(platform) then
             head.add{type = 'label', caption = {'pw.overview-my-ship', platform.name, left}}
         else
-            -- 平台已登记，但起步包还没用火箭发上来，surface 不存在，登不上去。
-            -- 禁用按钮并把「下一步该干什么」写进 tooltip，比让玩家点一次吃条报错强。
+            -- 旧存档可能留下 surface 还没出现的平台，登不上去。
+            -- 禁用按钮并写清状态，比让玩家点一次吃条报错强。
             board_btn.enabled = false
             board_btn.tooltip = {'pw.overview-ship-not-ready'}
             head.add{type = 'label', caption = {'pw.overview-my-ship-waiting', platform.name}}
@@ -279,7 +279,7 @@ local function board(player, platform_index)
         player.print({'pw.overview-ship-gone'})
         return
     end
-    -- 平台在，但 surface 还没有：起步包还没用火箭发上来，船没成形。
+    -- 平台在，但 surface 还没有：旧存档的待成形平台，或引擎还没建出 surface。
     -- 这和「船没了」是两码事，报错要分开说，否则玩家会以为船被销毁了。
     if not ships.is_ready(platform) then
         player.print({'pw.overview-ship-not-ready'})

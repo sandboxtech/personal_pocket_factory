@@ -36,16 +36,40 @@ local function records()
     return storage.ships
 end
 
+local function sync_deletion_state(record, platform)
+    if record and record.scuttled and platform and platform.valid
+            and game.tick > record.scuttled
+            and not platform.scheduled_for_deletion then
+        record.scuttled = nil
+    end
+end
+
+local function reconcile_platforms()
+    local rs = records()
+    for index, platform in pairs(game.forces.player.platforms) do
+        if platform and platform.valid and not rs[index] then
+            rs[index] = {
+                owner = nil,
+                created = game.tick,
+                built = M.is_ready(platform) and game.tick or nil,
+                scuttled = platform.scheduled_for_deletion and game.tick or nil,
+            }
+        end
+    end
+end
+
 local ensure_life_started
 
 -- 某人的船。顺手清掉指向已消失平台的记录 —— 登记表的自愈只发生在这一个地方，
 -- 其它函数都经由本函数取船，所以不会有第二处需要同步维护的清理逻辑。
 function M.of(player)
     if not (player and player.valid) then return nil end
+    reconcile_platforms()
     for index, record in pairs(records()) do
         if record.owner == player.name then
             local platform = platform_of(index)
             if platform then
+                sync_deletion_state(record, platform)
                 ensure_life_started(record, platform)
                 return platform, record
             end
@@ -55,7 +79,7 @@ function M.of(player)
     return nil
 end
 
--- 船成形了没有。起步包还没用火箭发上来的平台没有 surface，登不上去。
+-- 船成形了没有。没有 surface 的平台登不上去。
 function M.is_ready(platform)
     if not (platform and platform.valid) then return false end
     local surface = platform.surface
@@ -155,12 +179,8 @@ end)
 
 -- 造一艘。成功返回 platform，失败返回 nil 加一个本地化 key。
 --
--- 【起步包仍然要用火箭发上去】：本函数只负责把平台登记出来，它诞生时处在
--- waiting_for_starter_pack 状态，surface 还不存在
--- （文档原话："The surface that belongs to this platform (if it has been created yet)"）。
--- 玩家得照常造火箭、把 space-platform-starter-pack 发上天，平台才真正成形。
--- 换句话说 UI 按钮换掉的只是"谁来按下创建"这一步，太空玩法本来的门槛一点没降 ——
--- 这正是"启动包还是要发射"的意思。surface 出现时 on_surface_created 会接手套边界。
+-- UI 按钮直接把起步包应用掉，让平台当场成形；surface 出现时 on_surface_created
+-- 仍会再接手一次登记和边界设置。这里也显式补一遍，是为了兼容事件触发顺序差异。
 function M.create(player)
     if not (player and player.valid) then return nil, 'pw.ship-create-failed' end
     if M.of(player) then return nil, 'pw.ship-already-have' end
@@ -178,8 +198,23 @@ function M.create(player)
         return nil, 'pw.ship-create-failed'
     end
 
-    records()[platform.index] = {owner = player.name, created = game.tick}
-    apply_bounds(platform, player.name)   -- 此刻多半还没有 surface，真正生效的是 on_surface_created 里那次
+    local record = {owner = player.name, created = game.tick}
+    records()[platform.index] = record
+
+    local ok, err = pcall(function()
+        platform.apply_starter_pack()
+    end)
+    if not ok then
+        record.scuttled = game.tick
+        platform.destroy()
+        log('[pw] apply_starter_pack 失败：' .. tostring(err))
+        return nil, 'pw.ship-create-failed'
+    end
+
+    if M.is_ready(platform) then
+        record.built = record.built or game.tick
+    end
+    apply_bounds(platform, player.name)
 
     game.print({'pw.ship-created', player.name})
     return platform
@@ -193,10 +228,8 @@ end
 -- 走 on_surface_created：引擎没有平台创建事件，但平台的 surface 一定要诞生，
 -- 而 LuaSurface.platform 能从 surface 反查到平台对象。这是能拿到的最早时机。
 --
--- 这个处理器同时负责【补涂边界】：平台刚创建时 surface 可能还不存在
--- （停在 waiting_for_starter_pack 状态），M.create 里那次 apply_bounds 就落了空。
--- 等 surface 真的出现时本处理器一定会被调到，那时候再套一次边界是最可靠的时机。
--- apply_bounds 幂等（就是覆写 map_gen_settings），重复调没有副作用。
+-- 这个处理器同时负责【补涂边界】：旧存档里的待起步包平台会晚些才出现 surface；
+-- 新按钮创建的即时平台也会经过这里。apply_bounds 幂等，重复调用没有副作用。
 local function on_platform_surface(surface)
     if not (surface and surface.valid) then return end
     local platform = surface.platform
@@ -212,7 +245,7 @@ local function on_platform_surface(surface)
         rs[platform.index] = record
     end
 
-    -- surface 出现才代表起步包已经发上来、船真正成形，寿命从这里开始扣。
+    -- surface 出现才代表船真正成形，寿命从这里开始扣。
     record.built = record.built or game.tick
 
     apply_bounds(platform, record.owner)
@@ -230,14 +263,14 @@ end)
 -- 所以这个函数【只接受一个 player 参数，拆的永远是他名下那艘】，
 -- 不提供"按 index 拆"的入口，从签名上就不给越权留位置。
 --
--- 为什么需要主动拆：每人同时只能有一艘，想换个环绕星球、或者上一艘卡在
--- 等起步包的状态回不来了，需要有一个明确的放弃入口。
+-- 为什么需要主动拆：每人同时只能有一艘，想换个环绕星球、或者上一艘卡住了，
+-- 需要有一个明确的放弃入口。
 function M.scuttle(player)
     local platform, record = M.of(player)
     if not platform then return false end
-    local index = platform.index
+    if record.scuttled or platform.scheduled_for_deletion then return true end
+    record.scuttled = game.tick
     platform.destroy()
-    records()[index] = nil
     game.print({'pw.ship-scuttled', player.name})
     return true
 end
@@ -250,8 +283,14 @@ function M.destroy_owned(player)
     for index, record in pairs(records()) do
         if record.owner == player.name then
             local platform = platform_of(index)
-            if platform then platform.destroy() end
-            records()[index] = nil
+            if platform then
+                if not (record.scuttled or platform.scheduled_for_deletion) then
+                    record.scuttled = game.tick
+                    platform.destroy()
+                end
+            else
+                records()[index] = nil
+            end
             return platform and true or false
         end
     end
@@ -261,10 +300,12 @@ end
 -- 所有在册飞船，供 GUI 列出。顺手清掉指向已消失平台的记录。
 -- 每项：{ index, owner（可能是 nil）, platform, left_hours, location（星球名或 nil） }
 function M.all()
+    reconcile_platforms()
     local out = {}
     for index, record in pairs(records()) do
         local platform = platform_of(index)
         if platform then
+            sync_deletion_state(record, platform)
             ensure_life_started(record, platform)
             -- space_location 在飞船停泊时是星球原型，航行途中是 nil。
             -- 只取 name 交给 GUI，GUI 自己决定怎么显示（图标 / "航行中"）。
@@ -275,8 +316,7 @@ function M.all()
                 platform = platform,
                 left_hours = math.floor(math.max(0, M.left_ticks(record)) / constants.hour_to_tick),
                 location = location and location.name or nil,
-                -- 起步包还没发射上来的平台没有 surface，登不上去。
-                -- 判据直接用「surface 在不在」而不是比对 state 枚举：
+                -- 没有 surface 的平台登不上去。判据直接用「surface 在不在」而不是比对 state 枚举：
                 -- 能不能登船取决于有没有地方站，这就是那个条件本身。
                 ready = M.is_ready(platform),
             }
@@ -295,18 +335,21 @@ end
 -- 要管好的是复活点，不是销毁那一刻的玩家状态。
 -- 船本来就是有寿命的临时资产，跟船一起沉掉也符合它的定位。
 function M.tick_lifecycle()
+    reconcile_platforms()
     local destroyed = 0
     for index, record in pairs(records()) do
         local platform = platform_of(index)
         if not platform then
             records()[index] = nil
         else
+            sync_deletion_state(record, platform)
             ensure_life_started(record, platform)
         end
-        if platform and record.built and M.left_ticks(record) <= 0 then
+        if platform and record.built and M.left_ticks(record) <= 0
+                and not (record.scuttled or platform.scheduled_for_deletion) then
             local label = record.owner or platform.name
+            record.scuttled = game.tick
             platform.destroy()
-            records()[index] = nil
             destroyed = destroyed + 1
             game.print({'pw.ship-expired', label})
         end

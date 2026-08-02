@@ -368,11 +368,11 @@ function M.ensure_defaults()
     -- 登记表【按平台 index 做主键】，主人只是它的一个属性（可以是 nil）：
     -- 玩家仍然可以从火箭井原生造平台，那种船脚本没参与创建、不知道是谁的，
     -- 按玩家名做主键的话它在表里根本没有位置可放。详见 scripts/ships.lua 顶部注释。
-    storage.ships = storage.ships or {}                      -- [平台index] = {owner=玩家名或nil, created=登记tick, built=成形tick或nil}
+    storage.ships = storage.ships or {}                      -- [平台index] = {owner=玩家名或nil, created=登记tick, built=成形tick或nil, scuttled=删除发起tick或nil}
     storage.player_cleanup = storage.player_cleanup or {}     -- [玩家index] = {index=玩家index, name=玩家名, queued=登记tick, due=最早移除tick}
     -- 禁用原生的太空平台按钮，让 UI 成为建船的唯一入口。
     -- 这是归属制成立的前提：船必须都从 ships.create 出生，才谈得上"这是谁的船"。
-    -- 起步包仍然要用火箭发上去，门槛一点没降 —— 换掉的只是"谁来按下创建"这一步。
+    -- UI 按钮会直接应用起步包，让飞船当场成形；原生建船仍锁住，避免出现无主船。
     -- 设成 false 就恢复原版行为（那样会重新出现无主飞船，见 scripts/ships.lua）。
 
     -- ══ 相位调度器（大类周期任务：科技丢失、戴森环生命周期……） ══

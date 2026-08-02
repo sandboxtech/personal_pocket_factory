@@ -18,7 +18,7 @@ local gui = require('scripts.gui.init')
 
 local M = {}
 
--- 【唯一被禁的是「绕开 UI 自己建船 / 删船」】。生产相关权限一律不禁，包括蓝图库 ——
+-- 【唯一被禁的是「绕开 UI 自己建船 / 从原生界面删船」】。生产相关权限一律不禁，包括蓝图库 ——
 -- 重置的是公共世界，玩家产线在戴森环里本来就不重置，蓝图加速不了任何东西。
 -- 关联箱的防偷因此走实体级的 operable = false，不靠权限组，见 chests.lua。
 --
@@ -26,8 +26,9 @@ local M = {}
 -- lock_space_platforms() 只是关掉那个按钮，火箭井里还有一条
 -- open_new_platform_button_from_rocket_silo，锁按钮挡不住。
 --
--- 删船更要紧：飞船全服公有谁都能登，放行 delete_space_platform 等于谁都能删任何一艘，
--- 且不可撤销。只留 overview 的拆船按钮 → ships.scuttle，只拆调用者自己那艘。
+-- 删船更要紧：飞船全服公有谁都能登，权限系统不能表达"只允许删除自己的平台"。
+-- 放行 delete_space_platform 等于谁都能删任何一艘，且不可撤销。
+-- 所以只留 overview 的拆船按钮 → ships.scuttle，只拆调用者自己那艘。
 -- cancel_delete_space_platform 和 rename 故意不禁：前者禁了只会让删除撤不回，
 -- 后者归属记在平台 index 上，改名纯属外观。
 local ACTION_GROUPS = {
