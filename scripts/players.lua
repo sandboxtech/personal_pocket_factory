@@ -213,6 +213,7 @@ events.on(defines.events.on_player_joined_game, function(event)
     local player = game.players[event.player_index]
     if not player then return end
     assign_group(player)
+    pockets.cancel_player_cleanup(player)
     -- 离线期间环被回收过的话，这里重建。玩家不会掉进一个已经不存在的 surface。
     if not pockets.get(player) then
         pockets.enter(player)

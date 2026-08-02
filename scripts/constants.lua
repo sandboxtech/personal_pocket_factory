@@ -312,6 +312,7 @@ function M.ensure_defaults()
     -- 玩家仍然可以从火箭井原生造平台，那种船脚本没参与创建、不知道是谁的，
     -- 按玩家名做主键的话它在表里根本没有位置可放。详见 scripts/ships.lua 顶部注释。
     storage.ships = storage.ships or {}                      -- [平台index] = {owner=玩家名或nil, created=登记tick, built=成形tick或nil}
+    storage.player_cleanup = storage.player_cleanup or {}     -- [玩家名] = {index=玩家index, name=玩家名, queued=登记tick, due=最早移除tick}
     -- 禁用原生的太空平台按钮，让 UI 成为建船的唯一入口。
     -- 这是归属制成立的前提：船必须都从 ships.create 出生，才谈得上"这是谁的船"。
     -- 起步包仍然要用火箭发上去，门槛一点没降 —— 换掉的只是"谁来按下创建"这一步。

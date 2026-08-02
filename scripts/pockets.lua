@@ -12,6 +12,8 @@ local util = require('scripts.util')
 
 local M = {}
 
+local PLAYER_CLEANUP_IDLE_TICKS = 90 * constants.hour_to_tick
+
 -- surface 名用 player.index 而不是 player.name：玩家名可能含空格或特殊字符，
 -- 而 index 在存档内稳定且必定合法。storage 里仍然按玩家名索引，方便改名后继承。
 function M.surface_name(player)
@@ -210,6 +212,72 @@ local function evacuate(surface, except_name)
     end
 end
 
+local function cleanup_records()
+    storage.player_cleanup = storage.player_cleanup or {}
+    return storage.player_cleanup
+end
+
+-- 环被删除时，离线玩家进入待清理表；上线会取消。
+-- 到期后移除离线 LuaPlayer 记录，让引擎自己清掉角色、背包和个人蓝图库。
+-- 注意：玩家进度在本场景自己的 storage 里按玩家名保存，不跟着删。
+function M.queue_player_cleanup(player)
+    if not (player and player.valid) then return false end
+    local rs = cleanup_records()
+    if player.connected then
+        rs[player.name] = nil
+        return false
+    end
+
+    rs[player.name] = {
+        index = player.index,
+        queued = game.tick,
+        name = player.name,
+        due = (player.last_online or game.tick) + PLAYER_CLEANUP_IDLE_TICKS,
+    }
+    return true
+end
+
+function M.cancel_player_cleanup(player)
+    if not (player and player.valid) then return false end
+    local rs = cleanup_records()
+    if not rs[player.name] then return false end
+    rs[player.name] = nil
+    return true
+end
+
+local function remove_offline_player(player)
+    local ok, err = pcall(function()
+        game.remove_offline_players({player})
+    end)
+    if not ok then
+        log('[pw] 移除离线玩家失败 ' .. player.name .. '：' .. tostring(err))
+        return false
+    end
+    return true
+end
+
+function M.tick_player_cleanup()
+    local cleaned = 0
+    for name, record in pairs(cleanup_records()) do
+        local player = game.players[record.index] or game.players[name]
+        if not (player and player.valid) then
+            cleanup_records()[name] = nil
+        elseif player.connected then
+            cleanup_records()[name] = nil
+        else
+            local idle = game.tick - (player.last_online or game.tick)
+            local due = record.due or ((player.last_online or game.tick) + PLAYER_CLEANUP_IDLE_TICKS)
+            if idle >= PLAYER_CLEANUP_IDLE_TICKS and game.tick >= due then
+                if remove_offline_player(player) then
+                    cleanup_records()[name] = nil
+                    cleaned = cleaned + 1
+                end
+            end
+        end
+    end
+    return cleaned
+end
+
 -- 删除某人的戴森环，同时删除他名下的飞船。经验一点不动，下次进环重新长出来。
 --
 -- 【不检查主人在不在线，也不清场】。老版本两样都做，理由是"删表面必然要处理人在里面
@@ -225,6 +293,7 @@ function M.delete_ring(player)
 
     game.delete_surface(surface)
     ships.destroy_owned(player)
+    M.queue_player_cleanup(player)
 
     storage.ring_state = storage.ring_state or {}
     storage.ring_state[player.name] = nil
@@ -253,6 +322,7 @@ function M.delete_all_rings()
         if surface and surface.valid then
             game.delete_surface(surface)
             ships.destroy_owned(player)
+            M.queue_player_cleanup(player)
             storage.ring_state[player.name] = nil
             storage.ring_applied_half[player.name] = nil
             deleted = deleted + 1
@@ -333,6 +403,7 @@ end
 -- 存了到期 tick 的话，改配置就只对新数据生效，服务器会处于两套规则并存的状态。
 function M.tick_lifecycle()
     storage.ring_state = storage.ring_state or {}
+    M.tick_player_cleanup()
 
     for _, player in pairs(game.players) do
         -- 顺手把显示层重新对一遍。状态跃迁那几处已经各自同步过了，这里是兜底：
