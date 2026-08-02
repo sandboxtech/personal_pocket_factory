@@ -463,10 +463,28 @@ function M.roll_coefficient()
     return math.random() * (storage.tech_loss_k_max or 2)
 end
 
+-- 当前正在研究的科技，其【直接前置】在本轮科技漏水中免疫。
+-- 只看 direct prerequisites，不递归向上追祖先科技：玩家正在补的那条链路不能被脚本从脚下抽走，
+-- 但更早的地基仍然参与漏水，免得一项高阶研究把半棵科技树都罩住。
+local function current_research_prerequisites()
+    local current = game.forces.player.current_research
+    if not (current and current.valid) then return nil end
+
+    local out = {}
+    for _, prereq in pairs(current.prerequisites or {}) do
+        if prereq and prereq.valid then
+            out[prereq.name] = true
+        end
+    end
+    return out
+end
+
 -- 某科技在系数为 k 的这一轮里被侵蚀的概率。没有东西可丢的一律返回 0。
 -- k 省略时取分布的期望值（上限的一半）——「没给系数」的唯一合理解释是问平均情况，
 -- expected_losses 就是这么用的。
-function M.loss_chance(tech, k)
+function M.loss_chance(tech, k, protected)
+    if protected and protected[tech.name] then return 0 end
+
     local proto = tech.prototype
     -- Trigger 科技永不丢失：它们不是「研究」出来的而是触发出来的，
     -- 撤销后玩家没有合法途径重新拿到。
@@ -494,8 +512,9 @@ end
 -- 不传 k，拿的是长期平均值；单看某一轮的实际丢失数会围着它上下摆很大。
 function M.expected_losses()
     local sum = 0
+    local protected = current_research_prerequisites()
     for _, tech in pairs(game.forces.player.technologies) do
-        sum = sum + M.loss_chance(tech)
+        sum = sum + M.loss_chance(tech, nil, protected)
     end
     return sum
 end
@@ -513,8 +532,9 @@ function M.roll_tech_loss()
     -- 【一轮一个系数】：在循环外面掷，循环里所有科技共用。挪进循环就等于
     -- 每个科技各掷各的，随机性会被大数定律抹平，见 M.roll_coefficient 的说明。
     local k = M.roll_coefficient()
+    local protected = current_research_prerequisites()
     for name, tech in pairs(game.forces.player.technologies) do
-        local chance = M.loss_chance(tech, k)
+        local chance = M.loss_chance(tech, k, protected)
         if chance > 0 and math.random() < chance then
             -- 播报里用 [technology=名字] 富文本而不是裸科技名：
             -- 裸名是内部标识（'productivity-module-3' 这种），既不跟客户端语言翻译，
