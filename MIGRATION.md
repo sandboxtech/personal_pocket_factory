@@ -48,15 +48,18 @@ tests/test_palette.lua
 补建五个星球的 surface、解锁星图、按新几何校准所有戴森环、
 并对五颗星球跑一次 `apply_bounds`（顺带洗掉旧版写进存档的地图生成污染，见下面「废料」那条）。
 
-### 3. 手工改掉 6 个旧值
+### 3. 手工改掉 9 个旧值
 
 这些键在旧存档里**已经有值**，`ensure_defaults` 不会碰它们。逐条粘进控制台：
 
 ```
 /sc storage.ring_min_hours = 3
-/sc storage.ring_height = 64
-/sc storage.ring_concrete_height = 32
+/sc storage.ring_height = 32
+/sc storage.ring_concrete_height = 16
+/sc storage.ring_per_level = 8
+/sc storage.ring_level_bonus = 4
 /sc storage.ring_pond_half = 2
+/sc storage.dropoff_limit = 8
 /sc storage.world_reset_minutes = {nauvis=120, vulcanus=180, fulgora=240, gleba=300, aquilo=420}
 /sc storage.tech_loss_k_max = 2
 ```
@@ -84,15 +87,15 @@ tests/test_palette.lua
 
 | | 旧版 | 新版 |
 | --- | --- | --- |
-| 环高 | 128（中间 64 可建） | 64（中间 32 可建） |
+| 环高 | 64（中间 32 可建） | 32（中间 16 可建） |
 | 收货箱 | 竖排两列，x = ±3 | 横排两行，y = -5 / 4 |
 | 水池 | 6×6 | 4×4 |
 
 `ring_height` 是**建面时**写进 map_gen 的引擎级硬边界，改配置管不了已经存在的 surface。
 收货箱的 `ensure_array` 是"这个位置没有就建"，**不会拆掉旧位置上的箱子** ——
-于是旧环会同时存在旧的 12 个和新的 12 个。不重置的话这些都得手工收拾。
+旧环现在会迁成 100 小时公共遗迹，新环才按新版 8 箱阵生成。
 
-不想动玩家的环也行，代价就是老环维持旧形状、多一组孤儿箱子。**新玩家的环一律是新形状。**
+玩家回自己的环时会生成新形状。旧环不强拆，留作公共遗迹给全服进入。
 
 ---
 
@@ -102,11 +105,11 @@ tests/test_palette.lua
 
 | 改动 | 说明 |
 | --- | --- |
-| **戴森环按玩家名显示** | 遥控视角左侧不再是 `ring_5`，而是玩家名字（`surface.localised_name`，不动 `surface.name`） |
-| **环变小了** | 高 64（中间 32 可建 + 上下各 16 临空）。宽度公式没变 |
-| **收货箱横排** | 上下两行各 6 个，夹着水池，机械臂从箱阵外侧取货。竖直方向是稀缺资源，转 90 度省出上下各 12 格建设带 |
+| **旧环转公共遗迹** | 旧 `ring_*` 改名成 `public_*`，全服总览可进入，100 小时后回收 |
+| **环变小了** | 高 32（中间 16 可建 + 上下各 8 临空）。每级增长也减半 |
+| **收货箱横排** | 上下两行各 4 个，夹着水池，机械臂从箱阵外侧取货 |
 | **水池 4×4** | 和箱行之间各留 2 格岸，取水面从左右两侧变成**四面都能架抽取泵** |
-| **投递口 12 个** | 从 1 个改成 12 个，全宇宙合计。放第 13 个时**最早那个**自动退回背包 |
+| **投递口 8 个** | 从 12 个改成 8 个，全宇宙合计。放第 9 个时**最早那个**自动退回背包 |
 | **起始装备** | 没有环的玩家进服直接补发；复活时按 3 小时冷却补发。内容：模块装甲 + 个人机器人指令模块 + 6 太阳能板 **+ 10 建设机器人** |
 | **科技漏水改了公式** | 每轮先掷一个 0~2 的系数，该轮所有科技共用。有的轮次风平浪静，有的成片地掉 |
 | **星球周期各 +1 小时** | 120 / 180 / 240 / 300 / 420 分钟 |
@@ -171,11 +174,11 @@ tests/test_palette.lua
 | `tech_loss_k` | **改名** → `tech_loss_k_max`，默认 1 → 2 |
 | `ring_delete_hours` | **改名** → `ring_delete_multiple`，含义从"小时数"变成"公共化阈值的倍数"，默认 50 → 3 |
 | `ring_min_hours` | 1 → **3** |
-| `ring_height` / `ring_concrete_height` | 128 / 64 → **64 / 32** |
+| `ring_height` / `ring_concrete_height` / `ring_per_level` | 64 / 32 / 16 → **32 / 16 / 8** |
 | `ring_pond_half` | 3 → **2** |
 | `world_reset_minutes` | 各 **+60 分钟** |
 | `world_patch_tiles` | **删除** |
-| `dropoff_limit` | **新增**，12 |
+| `dropoff_limit` | 12 → **8** |
 | `ring_hide_private` | **新增**，true |
 | `starter_items` / `starter_equipment` / `starter_equipment_hours` | **新增**，可热改，`/pw-config` 里直接显示当前发的是什么 |
 | `world_climate_swing` / `world_terrain_scale` | **新增**，0.35 / 0.5 |
@@ -192,8 +195,8 @@ tests/test_palette.lua
 跑完上面四步，按顺序确认：
 
 1. `/pw-config` 打得开，`world` 组里能看到 `world_climate_swing` 和 `world_terrain_scale`
-2. `/pw-config` 里 `ring_min_hours` 显示 **3**、`ring_height` 显示 **64**
-3. 进自己的环：水池 4×4，上下各一行 6 个箱子，中间隔着 2 格岸
+2. `/pw-config` 里 `ring_min_hours` 显示 **3**、`ring_height` 显示 **32**
+3. 进自己的环：水池 4×4，上下各一行 4 个箱子，中间隔着 2 格岸
 4. 手搓一个木箱放到环外 —— 变成关联箱，塞东西进去能到环里的收货箱
 5. 等 Nauvis 下一轮重置，上去看**有没有废料**（有就是第 2 步没跑成）
 

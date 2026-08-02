@@ -1,4 +1,4 @@
--- 戴森环：每个玩家一个专属 surface，一条高 64 的环带（中间 32 格可建、上下各 16 格临空），没有任何资源。
+-- 戴森环：每个玩家一个专属 surface，一条高 32 的环带（中间 16 格可建、上下各 8 格临空），没有任何资源。
 --
 -- 定位：戴森环是【加工厂】，公共世界是【矿场】。
 -- 环里一颗矿都没有，所有原料必须从公共世界运回来（靠关联箱，见 chests.lua）。
@@ -13,6 +13,7 @@ local util = require('scripts.util')
 local M = {}
 
 local PLAYER_CLEANUP_IDLE_TICKS = 90 * constants.hour_to_tick
+local PUBLIC_RING_LIFE_TICKS = 100 * constants.hour_to_tick
 
 -- surface 名用 player.index 而不是 player.name：玩家名可能含空格或特殊字符，
 -- 而 index 在存档内稳定且必定合法。storage 里仍然按玩家名索引，方便改名后继承。
@@ -58,9 +59,16 @@ local function sync_visibility(surface, player_name)
     end
 end
 
--- 平面列表里显示玩家名而不是内部名 ring_7。
--- 【改 localised_name，不是 name】：后者是全服唯一的键，而且 ring.is_ring_name /
--- ring.owner_name_of 都建立在 ring_<index> 这个格式上，改名等于把索引连根拔掉。
+local function reveal_surface(surface)
+    local force = game.forces.player
+    local ok, err = pcall(function() force.set_surface_hidden(surface, false) end)
+    if not ok then
+        log('[pw] set_surface_hidden 调用失败（公共戴森环仍可通过 UI 进入）：' .. tostring(err))
+    end
+end
+
+-- 平面列表里显示玩家名而不是内部名 ring2_7。
+-- 【改 localised_name，不是 name】：name 是全服唯一的键，只有迁移旧环到公共遗迹时才会改。
 -- 每次 ensure 都重设，跟上玩家改名。
 local function sync_label(surface, player)
     surface.localised_name = player.name
@@ -83,7 +91,7 @@ local function create_surface(player)
     local seed = (player.index * 7919 + 104729) % 2147483647
     local surface = game.create_surface(
         M.surface_name(player),
-        constants.ring_map_gen(seed, storage.ring_height or 64))
+        constants.ring_map_gen(seed, storage.ring_height or 32))
 
     surface.freeze_daytime = true    -- 永昼本身由 sync_daylight 按配置设
     surface.show_clouds = false
@@ -100,6 +108,102 @@ local function create_surface(player)
     return surface
 end
 
+local function forget_dropoffs_on(surface_name)
+    storage.dropoffs = storage.dropoffs or {}
+    for _, list in pairs(storage.dropoffs) do
+        for i = #list, 1, -1 do
+            if list[i].surface == surface_name then table.remove(list, i) end
+        end
+    end
+end
+
+local function next_public_ring_name()
+    storage.public_ring_next_id = storage.public_ring_next_id or 1
+    storage.public_rings = storage.public_rings or {}
+    while true do
+        local id = storage.public_ring_next_id
+        local name = ring.public_ring_name_for(id)
+        storage.public_ring_next_id = id + 1
+        if not game.surfaces[name] and not storage.public_rings[name] then
+            return name, id
+        end
+    end
+end
+
+local function make_public_record(surface, old_name, new_name, id)
+    local owner_index = ring.owner_index_of_name(old_name)
+    local owner = owner_index and game.players[owner_index]
+    local owner_name = owner and owner.name or nil
+    local layout = storage.legacy_ring_layout or {}
+    local half_width = (owner_name and storage.ring_applied_half and storage.ring_applied_half[owner_name])
+        or (owner_name and ring.half_width_of(owner_name))
+        or (storage.ring_base_half_width or 32)
+
+    storage.public_rings[new_name] = {
+        id = id,
+        name = new_name,
+        original_owner = owner_name,
+        original_owner_index = owner_index,
+        created = game.tick,
+        expires = game.tick + PUBLIC_RING_LIFE_TICKS,
+        half_width = half_width,
+        ring_height = layout.ring_height or 64,
+        concrete_height = layout.concrete_height or 32,
+        base_half_width = layout.base_half_width or 32,
+        pond_half = layout.pond_half or 2,
+    }
+
+    surface.localised_name = {'pw.label-public-ring-of', owner_name or tostring(id)}
+    reveal_surface(surface)
+    for _, chest in pairs(surface.find_entities_filtered{name = 'linked-chest'}) do
+        chest.link_id = constants.PUBLIC_LINK_ID
+    end
+
+    if owner_name then
+        storage.ring_state[owner_name] = nil
+        storage.ring_applied_half[owner_name] = nil
+    end
+end
+
+-- 把旧版 ring_<玩家index> 迁移成 100 小时公共遗迹；玩家自己的新环使用 ring2_<index>。
+-- 迁移是幂等的：改过名的 public_N 不再满足 legacy 判据，重复调用只会补齐记录。
+function M.migrate_legacy_rings()
+    storage.public_rings = storage.public_rings or {}
+    storage.ring_state = storage.ring_state or {}
+    storage.ring_applied_half = storage.ring_applied_half or {}
+
+    local legacy_surfaces = {}
+    local public_surfaces = {}
+    for _, surface in pairs(game.surfaces) do
+        if surface.valid and ring.is_legacy_ring_name(surface.name) then
+            legacy_surfaces[#legacy_surfaces + 1] = surface
+        elseif surface.valid and ring.is_public_ring_name(surface.name) and not storage.public_rings[surface.name] then
+            public_surfaces[#public_surfaces + 1] = surface
+        end
+    end
+
+    for _, surface in ipairs(legacy_surfaces) do
+        if surface.valid and ring.is_legacy_ring_name(surface.name) then
+            local old_name = surface.name
+            local new_name, id = next_public_ring_name()
+            local ok, err = pcall(function() surface.name = new_name end)
+            if ok then
+                forget_dropoffs_on(old_name)
+                make_public_record(surface, old_name, new_name, id)
+            else
+                log('[pw] 旧戴森环迁移失败 ' .. old_name .. ' -> ' .. new_name .. '：' .. tostring(err))
+            end
+        end
+    end
+
+    for _, surface in ipairs(public_surfaces) do
+        if surface.valid and ring.is_public_ring_name(surface.name) and not storage.public_rings[surface.name] then
+            local id = ring.public_ring_id_of_name(surface.name) or 0
+            make_public_record(surface, surface.name, surface.name, id)
+        end
+    end
+end
+
 -- 惰性创建 + 自愈。已存在的环不重复建，但下面那几步【每次都跑一遍】。
 --
 -- 不写成「已存在就直接 return」：那样的话任何一次建环中途出错留下的半成品环就永远修不好。
@@ -114,7 +218,7 @@ function M.ensure(player)
     -- 同步生成出生区，玩家马上就要落地，异步排队会落进还没生成的区块。
     -- 逐区块请求（ring.ensure_chunks），不给大半径——半径是正方形，横向无边界会真的生成出去。
     local half = ring.half_width_of(player.name)
-    local ring_height = storage.ring_height or 64
+    local ring_height = storage.ring_height or 32
     local y_half = math.floor(ring_height / 2)
     ring.ensure_chunks(surface, -half, half, -y_half, y_half)
 
@@ -157,7 +261,7 @@ function M.ensure(player)
     return surface
 end
 
--- 把所有【已存在】的戴森环过一遍 ensure，补齐半成品环缺失的部分（典型是 12 个收货箱）。
+-- 把所有【已存在】的新戴森环过一遍 ensure，补齐半成品环缺失的部分（典型是系统收货箱）。
 --
 -- 只碰已经存在的环，绝不新建：对已经离线超过删除阈值、环已被回收的玩家调 ensure，
 -- 会把那个环凭空造回来，等于绕过离线删除规则。判据就是 M.get(player) 非空。
@@ -280,6 +384,24 @@ function M.tick_player_cleanup()
         end
     end
     return cleaned
+end
+
+local function tick_public_rings()
+    storage.public_rings = storage.public_rings or {}
+    local removed = 0
+    for name, record in pairs(storage.public_rings) do
+        local surface = game.surfaces[name]
+        if not (surface and surface.valid) then
+            storage.public_rings[name] = nil
+        elseif game.tick >= (record.expires or game.tick) then
+            evacuate(surface, nil)
+            game.delete_surface(surface)
+            storage.public_rings[name] = nil
+            game.print({'pw.public-ring-expired', record.original_owner or tostring(record.id or '')})
+            removed = removed + 1
+        end
+    end
+    return removed
 end
 
 -- 删除某人的戴森环，同时删除他名下的飞船。经验一点不动，下次进环重新长出来。
@@ -408,6 +530,7 @@ end
 function M.tick_lifecycle()
     storage.ring_state = storage.ring_state or {}
     M.tick_player_cleanup()
+    tick_public_rings()
 
     for _, player in pairs(game.players) do
         -- 顺手把显示层重新对一遍。状态跃迁那几处已经各自同步过了，这里是兜底：
@@ -471,6 +594,47 @@ function M.all_rings()
         end
     end
     return out
+end
+
+function M.public_rings()
+    storage.public_rings = storage.public_rings or {}
+    local out = {}
+    for name, record in pairs(storage.public_rings) do
+        local surface = game.surfaces[name]
+        if surface and surface.valid then
+            out[#out + 1] = {
+                id = record.id or ring.public_ring_id_of_name(name) or 0,
+                name = name,
+                original_owner = record.original_owner,
+                left_hours = math.max(0, math.floor(((record.expires or game.tick) - game.tick) / constants.hour_to_tick)),
+            }
+        else
+            storage.public_rings[name] = nil
+        end
+    end
+    table.sort(out, function(a, b)
+        if a.left_hours ~= b.left_hours then return a.left_hours < b.left_hours end
+        return a.name < b.name
+    end)
+    return out
+end
+
+function M.enter_public_ring(player, id)
+    storage.public_rings = storage.public_rings or {}
+    for name, record in pairs(storage.public_rings) do
+        if (record.id or ring.public_ring_id_of_name(name)) == id then
+            local surface = game.surfaces[name]
+            if not (surface and surface.valid) then
+                storage.public_rings[name] = nil
+                return false
+            end
+            local pos = surface.find_non_colliding_position('character', constants.RING_SPAWN, 64, 1)
+                or constants.RING_SPAWN
+            player.teleport(pos, surface)
+            return true
+        end
+    end
+    return false
 end
 
 return M

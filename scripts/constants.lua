@@ -21,19 +21,19 @@ M.PUBLIC_PLANETS = {'nauvis', 'vulcanus', 'gleba', 'fulgora', 'aquilo'}
 -- 全服只有一个公共库存：所有弃厂的产出汇进同一个池子。
 M.PUBLIC_LINK_ID = 0
 
--- ══ 环心布局：12 个收货箱的两列，以及玩家进环的落点 ══
+-- ══ 环心布局：8 个收货箱的两行，以及玩家进环的落点 ══
 --
 -- 【这几个值必须一起改】：落点绝不能落在箱阵占的格子上，否则玩家一进环就被挤走。
 --
--- 横排两行各 6 个，夹着中间 4×4 的水池。12 个箱子是【并行存取口】不是 12 倍容量
+-- 横排两行各 4 个，夹着中间 4×4 的水池。8 个箱子是【并行存取口】不是 8 倍容量
 -- （同 link_id 共享一份库存），机械臂站在箱阵外侧上下两面取货。
--- 竖排的话 6 格高会吃掉可建带（只有 32 格高）的近五分之一，而环是横向无限延伸的。
+-- 竖排会吃掉可建带（现在只有 16 格高）的太多空间，而环是横向无限延伸的。
 --
 -- 箱行和池岸之间留 2 格空地：海洋泵要站陆地上、泵口朝水，四面都有岸才能四面取水，
 -- 空出的 2 格正好摆下泵 + 一段管道。
 M.CHEST_ROWS = {-5, 4}         -- 两行各自占的 tile y
-M.CHEST_COL_FROM = -3          -- 每行 6 个，tile x 从这里
-M.CHEST_COL_TO = 2             -- 到这里（闭区间）
+M.CHEST_COL_FROM = -2          -- 每行 4 个，tile x 从这里
+M.CHEST_COL_TO = 1             -- 到这里（闭区间）
 -- 落点就在【环心】，也就是两行箱子中间那片浅水里。浅水可以走，不会卡住玩家。
 M.RING_SPAWN = {0, 0}
 
@@ -66,11 +66,11 @@ M.TUNABLES = {
     {key = 'stamina_pending_cap', default = 100000, group = 'stamina', applies = 'live'},
     {key = 'stamina_balance_cap', default = 10000000, group = 'stamina', applies = 'live'},
     {key = 'stamina_initial_multiple', default = 0, group = 'stamina', applies = 'new'},
-    {key = 'ring_height', default = 64, group = 'ring', applies = 'new'},
-    {key = 'ring_concrete_height', default = 32, group = 'ring', applies = 'repaint'},
+    {key = 'ring_height', default = 32, group = 'ring', applies = 'new'},
+    {key = 'ring_concrete_height', default = 16, group = 'ring', applies = 'repaint'},
     {key = 'ring_base_half_width', default = 32, group = 'ring', applies = 'repaint'},
-    {key = 'ring_per_level', default = 16, group = 'ring', applies = 'grow'},
-    {key = 'ring_level_bonus', default = 2, group = 'ring', applies = 'grow'},
+    {key = 'ring_per_level', default = 8, group = 'ring', applies = 'grow'},
+    {key = 'ring_level_bonus', default = 4, group = 'ring', applies = 'grow'},
     {key = 'ring_pond_half', default = 2, group = 'ring', applies = 'repaint'},
     {key = 'ring_public_hours', default = 30, group = 'lifecycle', applies = 'live'},
     {key = 'ring_delete_multiple', default = 3, group = 'lifecycle', applies = 'live'},
@@ -78,7 +78,7 @@ M.TUNABLES = {
     {key = 'ring_hide_private', default = true, group = 'lifecycle', applies = 'live'},
     {key = 'ring_always_day', default = true, group = 'ring', applies = 'live'},
     {key = 'public_size', default = 2048, group = 'world', applies = 'reset'},
-    {key = 'dropoff_limit', default = 12, group = 'world', applies = 'live'},
+    {key = 'dropoff_limit', default = 8, group = 'world', applies = 'live'},
     {key = 'world_climate_swing', default = 0.35, group = 'world', applies = 'reset'},
     {key = 'world_terrain_scale', default = 0.5, group = 'world', applies = 'reset'},
     {key = 'world_reset_offset_minutes', default = 10, group = 'world', applies = 'new'},
@@ -126,9 +126,8 @@ M.TUNABLE_TABLES = {
 -- 戴森环的地图生成设置。
 --
 -- 关键点一：height 是【引擎级硬边界】，|y| >= height/2 的区块根本不生成，零成本零代码。
---   64 是精确的 2 个区块行（-32..0 / 0..32），每行都被用满。
---   取 48 的话占用区块数一模一样，却有四分之一空间被 out-of-map 浪费掉。
---   纵向布局：中间 32 格可建带（tutorial-grid），上下各 16 格临空带，合计 64。
+    --   32 是精确的 1 个区块行（-16..16），每一格都被用满。
+    --   纵向布局：中间 16 格可建带（tutorial-grid），上下各 8 格临空带，合计 32。
 -- 关键点二：width = 0 表示【无限】，横向边界交给 ring.lua 手工涂 out-of-map 的墙。
 --   引擎硬边界只能是矩形、而且在已存在的 surface 上能不能改大是未验证的，
 --   所以横向的可增长边界必须自己涂。
@@ -205,10 +204,8 @@ function M.ensure_defaults()
         {normal = 1, uncommon = 3, rare = 5, epic = 7, legendary = 9}
 
     -- ══ 戴森环形状 ══
-    -- 等级的【起征点】。等级是 12 项经验的十进制位数之和，集齐 12 种（各至少 1 点）就是 12 级；
-    -- 取 10 让那一刻的半宽正好等于下限 ring_base_half_width，即「集齐 12 种」才是起跑线。
-    -- 换句话说宽 = 32 × (等级 − 10)，下限 64。这组数字是为了让改用位数计级之后
-    -- 实际环宽和之前逐点相同，推导见 scripts/geometry.lua 的 half_width。
+    -- ring_per_level 减半后，ring_level_bonus 从 2 调到 4：0 级仍是 64 格宽，
+    -- 同时从第 1 级开始每级都能看见增长（总宽 +16 格）。
 
     -- 语义砖名 → 实际砖原型名。geometry.lua 是纯函数、不读 storage，
     -- 所以它只返回语义值，由 ring.lua 查这张表映射成真实砖名。
@@ -231,8 +228,27 @@ function M.ensure_defaults()
     -- ══ 戴森环离线生命周期 ══
     -- 两个阈值都是【每次扫描现读】的，绝不缓存成到期 tick，这样改配置能立即对全体生效。
     storage.ring_state = storage.ring_state or {}                  -- [玩家名] = 'private' / 'public'
+    storage.public_rings = storage.public_rings or {}              -- [surface名] = {id, name, original_owner, created, expires, half_width, ring_height...}
+    storage.public_ring_next_id = storage.public_ring_next_id or 1
     -- 新人的阈值按累计在线时长缩放（见 pockets.public_threshold / delete_threshold），
     -- 缩放结果不低于这个下限——避免 online_time = 0 的全新玩家一离线就立刻公共化。
+
+    -- 一次性把上一版默认配置迁到新版环：旧 ring_* surface 会在 pockets.migrate_legacy_rings()
+    -- 里变成 100 小时公共遗迹；玩家自己的新环改用新 surface 前缀，按下面的新尺寸重建。
+    if not storage.ring_layout_32_migrated then
+        storage.legacy_ring_layout = storage.legacy_ring_layout or {
+            ring_height = storage.ring_height or 64,
+            concrete_height = storage.ring_concrete_height or 32,
+            base_half_width = storage.ring_base_half_width or 32,
+            pond_half = storage.ring_pond_half or 2,
+        }
+        if storage.ring_height == 64 then storage.ring_height = 32 end
+        if storage.ring_concrete_height == 32 then storage.ring_concrete_height = 16 end
+        if storage.ring_per_level == 16 then storage.ring_per_level = 8 end
+        if storage.ring_level_bonus == 2 then storage.ring_level_bonus = 4 end
+        if storage.dropoff_limit == 12 then storage.dropoff_limit = 8 end
+        storage.ring_layout_32_migrated = true
+    end
 
     -- ══ 新玩家的起手物资 ══
     -- 戴森环里一颗矿都没有，不给起手物资，新人连第一台熔炉都造不出来，

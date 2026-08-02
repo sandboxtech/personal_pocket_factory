@@ -140,7 +140,7 @@ end
 --
 -- 遍历所有玩家而不只在线的：离线时工厂也该继续产出经验。
 --
--- 【跳过公共期玩家】：他们的 12 个收货箱已经切到全服公共库存
+    -- 【跳过公共期玩家】：他们的系统收货箱已经切到全服公共库存
 -- （chests.expected_link_id），把公共的货记到缺席主人头上是错的。
 --
 -- 【两档节奏】在线 auto_convert_minutes（默认 1 分钟），离线
@@ -163,9 +163,9 @@ function M.tick_auto_convert()
                 and storage.ring_state[player.name] ~= 'public' then
             local surface = game.surfaces[ring.surface_name_for(player.index)]
             if surface and surface.valid then
-                -- 12 个收货箱共享同一份 inventory（都挂着同一个 link_id），
+                -- 系统收货箱共享同一份 inventory（都挂着同一个 link_id），
                 -- 随便找到其中一个读它的 chest inventory 就是那份共享库存本身，
-                -- 不需要、也不应该遍历 12 个分别兑换（会把同一份货吃 12 遍）。
+                -- 不需要、也不应该逐箱分别兑换（会把同一份货重复吃掉）。
                 local chest = surface.find_entities_filtered{name = 'linked-chest', limit = 1}[1]
                 if chest and chest.valid then
                     local inventory = chest.get_inventory(defines.inventory.chest)

@@ -31,12 +31,12 @@ end
 function M.show(player)
     local inner = popup.open_popup(player, {'pw.help-title'})
     -- 投递口个数是玩家最常问、也是管理员最可能调的数字，所以从 storage 现读传进去，
-    -- 不写死在 locale 文本里 —— 改了配置说明会跟着变，不会出现"说明说 1 个、实际能放 12 个"。
+    -- 不写死在 locale 文本里 —— 改了配置说明会跟着变，不会出现"说明说 1 个、实际能放 8 个"。
     -- 第二个参数是起始装备的补发冷却。放在【所有人都看得到】的这一段，不是塞进老玩家的
     -- 具体数值段：新人恰恰最容易死，也最容易以为"每次复活都白给一套"，
     -- 于是把一套装备当消耗品用掉，然后三小时内赤手空拳。
     local label = inner.add{type = 'label', caption = {'pw.help-body',
-        storage.dropoff_limit or 12,
+        storage.dropoff_limit or 8,
         storage.starter_equipment_hours or 3,
     }}
     label.style.single_line = false

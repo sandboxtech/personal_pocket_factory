@@ -59,43 +59,43 @@ eleven[geo.SCIENCE_PACKS[12]] = 0
 check('缺 1 种 → 22', geo.ring_level(eleven), 22)
 
 -- ══ half_width ══
--- 宽度 = 每级步长 × (等级和 + 加成)，配置是 (32, 16, 2)，即【宽 = 32 × (等级和 + 2)】。
--- 半宽是宽度的一半，所以 half = 16 × (等级 + 2)。
+-- 宽度 = 每级步长 × (等级和 + 加成) × 2，配置是 (32, 8, 4)，即【宽 = 16 × (等级和 + 4)】。
+-- 半宽是宽度的一半，所以 half = 8 × (等级 + 4)。
 --
--- 加成取 2 而不是别的数：等级 0（一点经验都没有）时宽度正好是 64，
+-- 加成取 4 而不是别的数：等级 0（一点经验都没有）时宽度正好是 64，
 -- 也就是下限 base_half_width × 2 —— 起步宽度和"还没开始攒"这个状态对上。
--- 此后【每一级都真的加宽 32 格】，包括最开始那几级。
+-- 此后【每一级都真的加宽 16 格】，包括最开始那几级。
 --
 -- 这一点是上一版的问题所在：那时用的是 (等级 − 10)，配上下限 64 的结果是
 -- 等级 0 到 12 宽度全是 64 —— 集齐 12 种科技瓶一格都不涨，
 -- 而"从第一点经验起就看得见进展"正是把等级改成十进制位数的全部理由。
-check('等级 0 → 半宽 32（宽 64）',   geo.half_width(0, 32, 16, 2), 32)
-check('等级 1 → 半宽 48（宽 96）',   geo.half_width(1, 32, 16, 2), 48)
-check('等级 12（集齐各 1 点）→ 半宽 224（宽 448）', geo.half_width(12, 32, 16, 2), 224)
-check('等级 24（各 10 点）→ 半宽 416（宽 832）',    geo.half_width(24, 32, 16, 2), 416)
-check('等级 84（各 100 万）→ 半宽 1376（宽 2752）', geo.half_width(84, 32, 16, 2), 1376)
+check('等级 0 → 半宽 32（宽 64）',   geo.half_width(0, 32, 8, 4), 32)
+check('等级 1 → 半宽 40（宽 80）',   geo.half_width(1, 32, 8, 4), 40)
+check('等级 12（集齐各 1 点）→ 半宽 128（宽 256）', geo.half_width(12, 32, 8, 4), 128)
+check('等级 24（各 10 点）→ 半宽 224（宽 448）',    geo.half_width(24, 32, 8, 4), 224)
+check('等级 84（各 100 万）→ 半宽 704（宽 1408）',  geo.half_width(84, 32, 8, 4), 704)
 
 -- 逐级递增：绝不能出现"升了一级宽度没变"的区间
 for lv = 0, 40 do
     check(('等级 %d → %d 每级都真的变宽'):format(lv, lv + 1),
-        geo.half_width(lv + 1, 32, 16, 2) - geo.half_width(lv, 32, 16, 2), 16)
+        geo.half_width(lv + 1, 32, 8, 4) - geo.half_width(lv, 32, 8, 4), 8)
 end
 
 -- 下限只是脏数据的兜底：等级为负时不能返回 0 或负数，
 -- 否则 tile_at 会把整条环判成 void，玩家掉进一个一格地板都没有的世界。
-check('等级 -5(脏数据) → 夹到下限 32', geo.half_width(-5, 32, 16, 2), 32)
-check('等级 -100(脏数据) → 夹到下限 32', geo.half_width(-100, 32, 16, 2), 32)
+check('等级 -5(脏数据) → 夹到下限 32', geo.half_width(-5, 32, 8, 4), 32)
+check('等级 -100(脏数据) → 夹到下限 32', geo.half_width(-100, 32, 8, 4), 32)
 
--- 公式对照：宽度必须严格等于 (等级和 + 2) × 32
+-- 公式对照：宽度必须严格等于 (等级和 + 4) × 16
 for lv = 0, 84 do
-    check(('公式对照 等级 %d'):format(lv), 2 * geo.half_width(lv, 32, 16, 2), (lv + 2) * 32)
+    check(('公式对照 等级 %d'):format(lv), 2 * geo.half_width(lv, 32, 8, 4), (lv + 4) * 16)
 end
 
 -- ══ tile_at ══
 -- 约定：tile 坐标 x 占据 [x, x+1)，所以有效范围是 x ∈ [-half, half)
 -- 返回值现在是语义值：'start' / 'grown' / 'space' / 'void'（不是具体砖名，见 geometry.lua 顶部注释）
--- 环高 64 = 中间 32 格可建带 + 上下各 16 格临空带。
-local HW, RH, CH, BHW = 32, 64, 32, 32
+-- 环高 32 = 中间 16 格可建带 + 上下各 8 格临空带。
+local HW, RH, CH, BHW = 32, 32, 16, 32
 local function t(x, y) return geo.tile_at(x, y, HW, RH, CH, BHW) end
 
 check('原点是初始区域',      t(0, 0), 'start')
@@ -104,15 +104,15 @@ check('右边界外第一格',      t(32, 0), 'void')
 check('左边界内第一格',      t(-32, 0), 'start')
 check('左边界外第一格',      t(-33, 0), 'void')
 
-check('混凝土带上沿(含)',    t(0, -16), 'start')
-check('混凝土带上沿外',      t(0, -17), 'space')
-check('混凝土带下沿(不含)',  t(0, 16), 'space')
-check('混凝土带下沿内',      t(0, 15), 'start')
+check('混凝土带上沿(含)',    t(0, -8), 'start')
+check('混凝土带上沿外',      t(0, -9), 'space')
+check('混凝土带下沿(不含)',  t(0, 8), 'space')
+check('混凝土带下沿内',      t(0, 7), 'start')
 
-check('环上沿内',            t(0, -32), 'space')
-check('环上沿外',            t(0, -33), 'void')
-check('环下沿内',            t(0, 31), 'space')
-check('环下沿外',            t(0, 32), 'void')
+check('环上沿内',            t(0, -16), 'space')
+check('环上沿外',            t(0, -17), 'void')
+check('环下沿内',            t(0, 15), 'space')
+check('环下沿外',            t(0, 16), 'void')
 
 -- 横向墙优先于纵向分带：环外就是环外，不管 y 在哪一段
 check('横向越界压过纵向分带', t(100, 0), 'void')
@@ -133,7 +133,7 @@ check('grown 场景: base 右边界外第一格',   tg(32, 0), 'grown')
 check('grown 场景: base 左边界外第一格',   tg(-33, 0), 'grown')
 check('grown 场景: 新半宽内最后一格',      tg(79, 0), 'grown')
 check('grown 场景: 新半宽外第一格(墙)',    tg(80, 0), 'void')
-check('grown 场景: 临空带仍是 space',      tg(50, 20), 'space')
+check('grown 场景: 临空带仍是 space',      tg(50, 10), 'space')
 
 -- ══ tile_at：环心水池 ══
 -- 出生点一片 4×4 浅水，半径 2（tile x/y 各从 -2 到 1）。
@@ -142,7 +142,7 @@ check('grown 场景: 临空带仍是 space',      tg(50, 20), 'space')
 -- 于是连第一个红瓶都出不来。给水不破坏「环里没有资源」——一颗矿还是没有。
 --
 -- 水池判定必须【优先于】start/grown，否则会被中间那条可建带整片盖掉。
-local H, C, B = 64, 32, 32       -- ring_height / concrete_height / base_half_width
+local H, C, B = 32, 16, 32       -- ring_height / concrete_height / base_half_width
 local POND = 2                   -- 水池半径
 
 check('水池中心',        geo.tile_at(0, 0, 64, H, C, B, POND), 'water')
@@ -172,7 +172,7 @@ check('池下岸第二格是陆地',   geo.tile_at(0, 3, 64, H, C, B, POND), 'st
 
 -- 水池不能越过环的边界，也不能盖掉临空带和墙
 check('环外仍是墙',      geo.tile_at(-100, 0, 64, H, C, B, POND), 'void')
-check('临空带不受影响',  geo.tile_at(0, 20, 64, H, C, B, POND), 'space')
+check('临空带不受影响',  geo.tile_at(0, 10, 64, H, C, B, POND), 'space')
 
 -- 不传 pond_half（或传 0）时行为和加水池之前完全一致，老调用点不受影响
 check('无水池参数时环心是 start', geo.tile_at(0, 0, 64, H, C, B), 'start')
@@ -197,4 +197,3 @@ end
 
 print(string.format('%d/%d 通过', total - failures, total))
 os.exit(failures == 0 and 0 or 1)
-

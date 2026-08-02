@@ -145,7 +145,7 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | `scripts/ring.lua` | 戴森环涂砖与扩容：把 geometry 算出的语义值查表换成真实砖名，`on_chunk_generated` 的订阅入口，升级时逐区块行重涂新增竖带。 |
 | `scripts/bootstrap.lua` | 初始化/修复的那一套幂等步骤，`on_init`、`on_configuration_changed`、`/pw-repair` 三个调用方共用。 |
 | `scripts/expio.lua` | 玩家进度（经验 + 体力）的导出与导入。导出走 `helpers.write_file`，导入只能靠加载阶段 `pcall(require, 'exp_import')`——引擎没有运行时读文件的 API。 |
-| `scripts/chests.lua` | 关联箱：木箱↔关联箱转化、三道防偷锁、12 箱阵创建与 link_id 切换、投递口名额（先进先出）。 |
+| `scripts/chests.lua` | 关联箱：木箱↔关联箱转化、三道防偷锁、8 箱阵创建与 link_id 切换、投递口名额（先进先出）。 |
 | `scripts/exp.lua` | 12 种经验记账 + 兑换：背包手动兑换与收货箱周期自动兑换共用同一套预览/结算逻辑。 |
 | `scripts/stamina.lua` | 体力双池：可领取池按 tick 存、体力池按点存，读时惰性结算，离线玩家零开销、无取整漂移。 |
 | `scripts/players.lua` | 玩家生命周期（创建/加入/重生）+ 权限组（默认不禁用任何权限，含蓝图库）。 |
@@ -177,13 +177,13 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | --- | --- | --- |
 | `stamina_ticks_per_point` / `stamina_pending_cap` / `stamina_balance_cap` / `stamina_initial_multiple` | 体力：每点对应多少 tick / 可领取池点数上限 / 体力池点数上限 / 新玩家初始体力池 = pending_cap × 这个倍数 | 60 / 100000 / 10000000 / 10 |
 | `quality_exp` | 品质 → 经验系数 | normal=1, uncommon=3, rare=5, epic=7, legendary=9 |
-| `ring_height` / `ring_concrete_height` / `ring_base_half_width` / `ring_per_level` | 环带总高 / 中间可建带高度 / 起步半宽 / 每级两侧各外推多少 tile | 64 / 32 / 32 / 16 |
+| `ring_height` / `ring_concrete_height` / `ring_base_half_width` / `ring_per_level` | 环带总高 / 中间可建带高度 / 起步半宽 / 每级两侧各外推多少 tile | 32 / 16 / 32 / 8 |
 | `ring_tiles` | 语义砖名（start/grown/space/void）→ 真实砖原型名 | 见 `constants.lua` |
 | `ring_public_hours` / `ring_delete_multiple` / `ring_min_hours` | 离线多久变公共（老玩家上限）/ 删除阈值是它的几倍 / 缩放后的下限 | 30 / 3 / 3 |
 | `ring_hide_private` | 私人环是否从遥控视角平面列表隐藏（公共环一律显示） | true |
 | `ring_always_day` | 戴森环永昼（`surface.always_day`），太阳能 24 小时满出力 | true |
 | `world_climate_swing` / `world_terrain_scale` | 每轮气候摆幅 / 地貌块大小，都写进引擎的 `property_expression_names`，仅 Nauvis 有效 | 0.35 / 0.5 |
-| `public_size` / `dropoff_limit` | 公共星球边长（tile）/ 每人同时能放几个投递口（全宇宙合计） | 2048 / 12 |
+| `public_size` / `dropoff_limit` | 公共星球边长（tile）/ 每人同时能放几个投递口（全宇宙合计） | 2048 / 8 |
 | `world_warn_minutes` | 重置前多久提醒星球上的人（分钟数组）；半路降落的按实际剩余时间单独提示 | {5, 1} |
 | `world_reset_minutes` | 各星球重置周期（table，按星球名索引；必须都是 60 的整数倍，错峰证明依赖这一点） | nauvis 120 / vulcanus 180 / fulgora 240 / gleba 300 / aquilo 420 |
 | `world_reset_offset_minutes` | 相邻星球首次排期的错开分钟数 | 10 |
@@ -222,7 +222,7 @@ on_init:
 
 on_player_created:
     钉死 force -> assign_group -> pockets.enter（pockets.ensure 惰性建 + 幂等自愈：
-    create_surface(关污染) -> 涂初始区块 -> chests.ensure_array 建 12 箱阵
+    create_surface(关污染) -> 涂初始区块 -> chests.ensure_array 建 8 箱阵
     -> ring_state/applied_half 记账 -> set_spawn_position -> 最后才 sync_label/sync_visibility）
     -> grant_starter -> stamina.add(初始体力，默认倍数 0 即不送)
     -> gui.refresh_hud（主动建 HUD，不等周期任务）
@@ -336,7 +336,7 @@ on_player_joined_game:
 
 - 环形状：原点混凝土带、上下 `empty-space`、左右 `out-of-map` 墙、`|y| >= 64` 的区块
   确实不生成。
-- 12 箱阵：数量、`link_id`、不可摧毁不可挖、机械臂可正常存取；木箱三态转换（戴森环内
+- 8 箱阵：数量、`link_id`、不可摧毁不可挖、机械臂可正常存取；木箱三态转换（戴森环内
   不变、公共星球变关联箱、手搓直接产出关联箱物品）。
 - 兑换：攒够对应数量的科技瓶后等级和半宽按公式变化，扩容后新增的竖带砖块正确。
 - 离线生命周期：公共期 `link_id` 变成 `0`，主人回归后恢复成 `player.index`。

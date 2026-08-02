@@ -207,6 +207,19 @@ local function render_ship_list(container, viewer, list)
     end
 end
 
+local function render_public_ring_list(container, list)
+    local grid = container.add{type = 'table', column_count = 2}
+    grid.style.horizontal_spacing = 8
+    grid.style.vertical_spacing = 2
+    for _, public_ring in ipairs(list) do
+        local go = grid.add{type = 'button', style = 'tool_button',
+                            name = 'pw_ov_public_' .. public_ring.id, caption = RING_ICON}
+        go.tooltip = {'pw.overview-go-public-ring-tip'}
+        grid.add{type = 'label', caption = {'pw.overview-public-ring-detail',
+            public_ring.original_owner or public_ring.name, public_ring.left_hours}}
+    end
+end
+
 function M.show(player)
     local inner = popup.open_popup(player, {'pw.overview-title'})
 
@@ -220,9 +233,10 @@ function M.show(player)
     scroll.style.maximal_height = 560
 
     local rows, unowned = build_rows()
-    if #rows == 0 then
+    local public_rings = pockets.public_rings()
+    if #rows == 0 and #public_rings == 0 and #unowned == 0 then
         scroll.add{type = 'label', caption = {'pw.overview-empty'}}
-    else
+    elseif #rows > 0 then
         -- 一位玩家一行，四列对齐。人多了由 scroll-pane 纵向滚动，
         -- 横向绝不滚：所有单元格的内容都是短的（图标按钮 / 名字 / 几个数字）。
         local grid = scroll.add{type = 'table', name = 'pw_ov_grid', column_count = 4}
@@ -231,6 +245,12 @@ function M.show(player)
         for _, row in ipairs(rows) do
             render_row(grid, player, row)
         end
+    end
+
+    if #public_rings > 0 then
+        if #rows > 0 then scroll.add{type = 'line', direction = 'horizontal'} end
+        scroll.add{type = 'label', caption = {'pw.overview-public-rings-head'}}
+        render_public_ring_list(scroll, public_rings)
     end
 
     -- 无主飞船：玩家从火箭井原生造的平台，脚本不知道主人是谁。
@@ -345,6 +365,15 @@ function M.on_click(player, name)
     local owner_index = string.match(name, '^pw_ov_ring_(%d+)$')
     if owner_index then
         visit_ring(player, tonumber(owner_index))
+        popup.close_popup(player)
+        return true
+    end
+
+    local public_id = string.match(name, '^pw_ov_public_(%d+)$')
+    if public_id then
+        if not pockets.enter_public_ring(player, tonumber(public_id)) then
+            player.print({'pw.travel-ring-gone'})
+        end
         popup.close_popup(player)
         return true
     end

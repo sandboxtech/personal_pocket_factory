@@ -13,17 +13,51 @@ local constants = require('scripts.constants')
 
 local M = {}
 
-local PREFIX = 'ring_'
+local LEGACY_PREFIX = 'ring_'
+local PRIVATE_PREFIX = 'ring2_'
+local PUBLIC_PREFIX = 'public_'
 
 function M.surface_name_for(player_index)
-    return PREFIX .. tostring(player_index)
+    return PRIVATE_PREFIX .. tostring(player_index)
 end
 
 -- 只看名字，不要求 surface 还存在。给「surface 已经被删掉，但手上还有它的名字」
 -- 那类场合用（比如登记表里留下的旧坐标、聊天播报里回溯一个已消失的平面）。
 function M.is_ring_name(surface_name)
     if type(surface_name) ~= 'string' then return false end
-    return string.sub(surface_name, 1, #PREFIX) == PREFIX
+    return string.sub(surface_name, 1, #PRIVATE_PREFIX) == PRIVATE_PREFIX
+        or string.sub(surface_name, 1, #PUBLIC_PREFIX) == PUBLIC_PREFIX
+        or string.sub(surface_name, 1, #LEGACY_PREFIX) == LEGACY_PREFIX
+end
+
+function M.is_public_ring_name(surface_name)
+    if type(surface_name) ~= 'string' then return false end
+    return string.sub(surface_name, 1, #PUBLIC_PREFIX) == PUBLIC_PREFIX
+end
+
+function M.is_legacy_ring_name(surface_name)
+    if type(surface_name) ~= 'string' then return false end
+    return string.sub(surface_name, 1, #LEGACY_PREFIX) == LEGACY_PREFIX
+end
+
+function M.public_ring_name_for(id)
+    return PUBLIC_PREFIX .. tostring(id)
+end
+
+function M.public_ring_id_of_name(surface_name)
+    if not M.is_public_ring_name(surface_name) then return nil end
+    return tonumber(string.sub(surface_name, #PUBLIC_PREFIX + 1))
+end
+
+function M.owner_index_of_name(surface_name)
+    if type(surface_name) ~= 'string' then return nil end
+    if string.sub(surface_name, 1, #PRIVATE_PREFIX) == PRIVATE_PREFIX then
+        return tonumber(string.sub(surface_name, #PRIVATE_PREFIX + 1))
+    end
+    if string.sub(surface_name, 1, #LEGACY_PREFIX) == LEGACY_PREFIX then
+        return tonumber(string.sub(surface_name, #LEGACY_PREFIX + 1))
+    end
+    return nil
 end
 
 function M.is_ring_surface(surface)
@@ -35,7 +69,7 @@ end
 -- 而 storage 一律按玩家名索引（改名后仍能继承），所以这里要转一道。
 function M.owner_name_of(surface)
     if not M.is_ring_surface(surface) then return nil end
-    local index = tonumber(string.sub(surface.name, #PREFIX + 1))
+    local index = M.owner_index_of_name(surface.name)
     if not index then return nil end
     local player = game.players[index]
     return player and player.name or nil
@@ -50,8 +84,8 @@ function M.half_width_of(player_name)
     return geometry.half_width(
         M.level_of(player_name),
         storage.ring_base_half_width or 32,
-        storage.ring_per_level or 16,
-        storage.ring_level_bonus or 2)
+        storage.ring_per_level or 8,
+        storage.ring_level_bonus or 4)
 end
 
 -- 保证 [x_from, x_to) × [y_from, y_to) 这片区域内的区块都已生成。
@@ -78,11 +112,11 @@ end
 -- 调用方须保证这个矩形没有跨到未生成的区块 —— 涂到未生成的区块上要么被引擎静默丢弃
 -- （白费一次 set_tiles），要么抛错被 events 的 pcall 吞掉、留下涂错却没人发现的砖。
 -- on_chunk_generated 每次只传本区块的范围，apply_growth 逐区块行调用，都是为了这条。
-function M.paint_area(surface, x_from, x_to, y_from, y_to, half_width)
-    local ring_height = storage.ring_height or 64
-    local concrete_height = storage.ring_concrete_height or 32
-    local base_half_width = storage.ring_base_half_width or 32
-    local pond_half = storage.ring_pond_half or 2
+function M.paint_area(surface, x_from, x_to, y_from, y_to, half_width, layout)
+    local ring_height = (layout and layout.ring_height) or storage.ring_height or 32
+    local concrete_height = (layout and layout.concrete_height) or storage.ring_concrete_height or 16
+    local base_half_width = (layout and layout.base_half_width) or storage.ring_base_half_width or 32
+    local pond_half = (layout and layout.pond_half) or storage.ring_pond_half or 2
     -- geometry.lua 只返回语义值（'start'/'grown'/'space'/'void'），
     -- 真正的砖原型名查这张表。取不到时兜底成墙，绝不把 nil 塞进 set_tiles。
     local ring_tiles = storage.ring_tiles or {}
@@ -112,13 +146,18 @@ function M.on_chunk_generated(event)
     local surface = event.surface
     if not M.is_ring_surface(surface) then return end
     local owner = M.owner_name_of(surface)
-    if not owner then return end
+    local public_record = nil
+    if not owner then
+        public_record = storage.public_rings and storage.public_rings[surface.name]
+        if not public_record then return end
+    end
 
     local area = event.area
     M.paint_area(surface,
         math.floor(area.left_top.x), math.floor(area.right_bottom.x),
         math.floor(area.left_top.y), math.floor(area.right_bottom.y),
-        M.half_width_of(owner))
+        owner and M.half_width_of(owner) or public_record.half_width,
+        public_record)
 end
 
 -- 等级变化后扩容。只涂【新增的那两条竖带】，不碰玩家已经建过东西的老地皮。
@@ -136,7 +175,7 @@ function M.apply_growth(player)
     local new_half = M.half_width_of(player.name)
     if new_half <= old_half then return false end
 
-    local ring_height = storage.ring_height or 64
+    local ring_height = storage.ring_height or 32
     local y_half = math.floor(ring_height / 2)
 
     -- 新增竖带需要覆盖两种区块：新生成的（on_chunk_generated 会自动涂，但那时机不确定，

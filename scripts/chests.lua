@@ -17,11 +17,11 @@ local M = {}
 local WOOD = 'wooden-chest'
 local LINKED = 'linked-chest'
 
--- 12 个收货箱的位置：两行 × 六列（横排），以原点双向对称。坐标来自 constants
+-- 8 个收货箱的位置：两行 × 四列（横排），以原点双向对称。坐标来自 constants
 -- （和玩家进环的落点放在一起定义，改箱阵坐标时不会漏掉出生点，见那里的注释）。
 --
--- 12 个同 link_id 的箱子共享的是【同一个库存】，所以这不是 12 倍容量，
--- 是 12 个并行存取口 —— 12 个机械臂可以同时从同一批货里抓取，
+-- 8 个同 link_id 的箱子共享的是【同一个库存】，所以这不是 8 倍容量，
+-- 是 8 个并行存取口 —— 8 个机械臂可以同时从同一批货里抓取，
 -- 而单个箱子只能被有限几个机械臂围住。用箱子数量换吞吐量，不是换容量。
 -- 两行之间夹着环心水池（中间还留了 2 格岸给海洋泵），机械臂站在箱阵外侧（上下两面）取货，
 -- 理由见 constants 那边的注释。
@@ -35,7 +35,7 @@ local function array_positions()
     return out
 end
 
--- 某人的 12 箱阵此刻应该用哪个 link_id。
+-- 某人的系统箱阵此刻应该用哪个 link_id。
 -- 公共期（离线超过公共化阈值、还没到删除阈值）指向全服公共库存，其余时候指向他自己。
 function M.expected_link_id(player_name)
     storage.ring_state = storage.ring_state or {}
@@ -46,7 +46,7 @@ function M.expected_link_id(player_name)
     return player and player.index or constants.PUBLIC_LINK_ID
 end
 
--- 建 12 箱阵。幂等：已存在的位置跳过。
+-- 建系统箱阵。幂等：已存在的位置跳过。
 --
 -- 调用位置有顺序依赖：pockets.ensure 里本函数在 storage.ring_state[player.name] 赋值之前调用，
 -- 此时该玩家的 ring_state 还是 nil（不是 'public'），expected_link_id 会走「返回 player.index」
@@ -54,7 +54,7 @@ end
 -- 但这依赖调用顺序，将来若把本调用挪到 ring_state 赋值之后，行为不会变
 -- （因为赋的值正是 'private'，同样不等于 'public'），只是这里先记一笔，免得误以为顺序不重要就随手挪动。
 -- 这里直接用 expected_link_id 而不是「真相源」rightful_link_id，不是漏改：
--- 调用点保证了这 12 个箱子必然在 player 自己的环上（surface 是 M.ensure_array 的入参、
+-- 调用点保证了这些箱子必然在 player 自己的环上（surface 是 M.ensure_array 的入参、
 -- 由 pockets.ensure 传进来的就是这个玩家自己刚建好的环），rightful_link_id 的环内分支
 -- 最终也是转调 M.expected_link_id(owner)，owner 算出来就是这个 player.name ——两者在这里等价。
 -- rightful_link_id 存在的意义是给「不知道箱子归属、需要现查」的场合用（on_built），
@@ -110,7 +110,7 @@ function M.ensure_array(surface, player)
     end
 end
 
--- 把某人 12 箱阵的 link_id 整体切换（公共化 / 回归时用）。
+-- 把某人系统箱阵的 link_id 整体切换（公共化 / 回归时用）。
 function M.set_array_link(player, link_id)
     local surface = game.surfaces[ring.surface_name_for(player.index)]
     if not (surface and surface.valid) then return 0 end
@@ -174,7 +174,7 @@ end
 -------------------------------------------------------------------------------
 -- 投递口名额
 --
--- 玩家自己放的关联箱有个数上限（storage.dropoff_limit，默认 12），
+-- 玩家自己放的关联箱有个数上限（storage.dropoff_limit，默认 8），
 -- 作用域是【全宇宙合计】，不按星球分别计数。
 --
 -- 总额度而不是「每颗星球一个」：名额押在哪儿本身就该是个决策，按星球平摊会抹掉它。
@@ -249,7 +249,7 @@ function M.register_dropoff(player_index, chest)
 
     -- 夹到至少 1：上限被误设成 0 或负数时，下面的循环会把刚放下的这个也淘汰掉，
     -- 玩家会看到"箱子放下就消失"这种完全无法自诊断的现象。
-    local limit = math.max(1, math.floor(storage.dropoff_limit or 12))
+    local limit = math.max(1, math.floor(storage.dropoff_limit or 8))
     while #list > limit do
         evict(player_index, table.remove(list, 1), chest, limit)
     end
@@ -302,7 +302,7 @@ local function on_built(event)
     -- 走到这里 chest.name 必为 LINKED，不区分是否在戴森环里，以下这套规则统一生效：
     -- 戴森环里关联箱不再退化回木箱——玩家可以在自己环里放关联箱，它会经由
     -- rightful_link_id 绑到自己（或环的 public 状态对应）的 link_id 上，
-    -- 和那 12 个系统收货箱共享同一份库存，放了没有额外用处，但无害。
+    -- 和系统收货箱共享同一份库存，放了没有额外用处，但无害。
 
     -- neutral force 是防偷的核心：这里处理的是「攻击者挖走别人的投递口、拿到
     -- linked-chest 物品、自己放下」这条路径——放下时会再次经过本函数，一律转成
@@ -322,7 +322,7 @@ local function on_built(event)
     chest.operable = false
 
     -- 判定「这是不是玩家放的箱子」的唯一依据是 entity.destructible：
-    -- 戴森环里那 12 个系统收货箱固定 destructible = false，且是脚本 create_entity
+    -- 戴森环里那些系统收货箱固定 destructible = false，且是脚本 create_entity
     -- （raise_built = false）造出来的，本来就不会触发 on_built_entity/on_robot_built_entity，
     -- 不会走到这里；这里仍然显式判一次 destructible 作为双重保险——
     -- 玩家放的箱子永远是可摧毁的，destructible == false 就是系统箱区别于玩家箱的唯一标志。
@@ -349,7 +349,7 @@ events.on(defines.events.on_space_platform_built_entity, on_built)
 -- ══ 挖走 / 被摧毁时清理登记表 ══
 -- 现在戴森环里也可能存在被登记的玩家关联箱（见上面 on_built），所以不再按 surface
 -- 排除戴森环——任何平面上的都要清理。
--- 那 12 个系统收货箱 destructible = false、minable = false，本来就不会触发
+    -- 那些系统收货箱 destructible = false、minable = false，本来就不会触发
 -- on_player_mined_entity 也不会触发 on_entity_died；这里仍然显式判一次 destructible
 -- 作为双重保险，和 on_built 里的判据保持一致：destructible == false 是系统箱的唯一标志。
 -- 不清理也不会出大错：下次放置时 find_entity 在旧坐标找不到箱子，会静默跳过——

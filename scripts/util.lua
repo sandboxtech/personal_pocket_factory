@@ -89,6 +89,7 @@ end
 -- 三种平面各自的处理：
 --   · 五个公共星球 → planet_label，图标 + 引擎自带的星球名翻译
 --   · 戴森环       → "某某的戴森环"，用星图边缘那个图标（和 HUD 上的回环按钮一致）
+--   · 公共遗迹     → "某某留下的公共戴森环"
 --   · 太空平台     → 平台名本来就是玩家自己取的，配个起步包图标即可
 function M.surface_label(surface_name)
     if not surface_name then return '?' end
@@ -101,6 +102,10 @@ function M.surface_label(surface_name)
 
     local surface = game.surfaces[surface_name]
     if surface and surface.valid then
+        if ring.is_public_ring_name(surface.name) then
+            local record = storage.public_rings and storage.public_rings[surface.name]
+            return {'pw.label-public-ring-of', (record and record.original_owner) or surface.name}
+        end
         if ring.is_ring_surface(surface) then
             local owner = ring.owner_name_of(surface)
             if owner then return {'pw.label-ring-of', owner} end
@@ -114,6 +119,7 @@ function M.surface_label(surface_name)
 
     -- surface 已经不存在了（被删掉的戴森环、重置中的世界）。名字里还能认出是戴森环的，
     -- 仍然给一个像样的说法，而不是把 'ring_7' 甩给玩家。
+    if ring.is_public_ring_name(surface_name) then return {'pw.label-public-ring'} end
     if ring.is_ring_name(surface_name) then return {'pw.label-ring'} end
     return surface_name
 end
