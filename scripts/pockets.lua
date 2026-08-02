@@ -6,6 +6,7 @@
 local constants = require('scripts.constants')
 local ring = require('scripts.ring')
 local chests = require('scripts.chests')
+local ships = require('scripts.ships')
 -- util 只依赖 constants 和 ring，两者都不反向依赖 pockets，顶层 require 不成环。
 local util = require('scripts.util')
 
@@ -209,7 +210,7 @@ local function evacuate(surface, except_name)
     end
 end
 
--- 删除某人的戴森环。经验一点不动，下次进环重新长出来。
+-- 删除某人的戴森环，同时删除他名下的飞船。经验一点不动，下次进环重新长出来。
 --
 -- 【不检查主人在不在线，也不清场】。老版本两样都做，理由是"删表面必然要处理人在里面
 -- 怎么办"——但那个前提本身是错的：引擎自己会处理，站在被删表面上的角色会死亡，
@@ -223,6 +224,7 @@ function M.delete_ring(player)
     if not (surface and surface.valid) then return false, 'pw.cmd-no-ring' end
 
     game.delete_surface(surface)
+    ships.destroy_owned(player)
 
     storage.ring_state = storage.ring_state or {}
     storage.ring_state[player.name] = nil
@@ -250,6 +252,7 @@ function M.delete_all_rings()
         local surface = M.get(player)
         if surface and surface.valid then
             game.delete_surface(surface)
+            ships.destroy_owned(player)
             storage.ring_state[player.name] = nil
             storage.ring_applied_half[player.name] = nil
             deleted = deleted + 1

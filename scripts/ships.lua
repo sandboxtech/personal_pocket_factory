@@ -242,6 +242,22 @@ function M.scuttle(player)
     return true
 end
 
+-- 删除某玩家名下的船。给戴森环回收流程用，按登记表的 key（平台 index）删，
+-- 不按平台 name 删：船可以被玩家改名，name 不是可靠身份。
+function M.destroy_owned(player)
+    if not (player and player.valid) then return false end
+
+    for index, record in pairs(records()) do
+        if record.owner == player.name then
+            local platform = platform_of(index)
+            if platform then platform.destroy() end
+            records()[index] = nil
+            return platform and true or false
+        end
+    end
+    return false
+end
+
 -- 所有在册飞船，供 GUI 列出。顺手清掉指向已消失平台的记录。
 -- 每项：{ index, owner（可能是 nil）, platform, left_hours, location（星球名或 nil） }
 function M.all()
