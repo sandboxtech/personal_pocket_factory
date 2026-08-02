@@ -224,11 +224,12 @@ function M.queue_player_cleanup(player)
     if not (player and player.valid) then return false end
     local rs = cleanup_records()
     if player.connected then
-        rs[player.name] = nil
+        rs[player.index] = nil
+        rs[player.name] = nil -- 兼容旧存档里按名字排队的记录。
         return false
     end
 
-    rs[player.name] = {
+    rs[player.index] = {
         index = player.index,
         queued = game.tick,
         name = player.name,
@@ -240,14 +241,15 @@ end
 function M.cancel_player_cleanup(player)
     if not (player and player.valid) then return false end
     local rs = cleanup_records()
-    if not rs[player.name] then return false end
+    if not (rs[player.index] or rs[player.name]) then return false end
+    rs[player.index] = nil
     rs[player.name] = nil
     return true
 end
 
 local function remove_offline_player(player)
     local ok, err = pcall(function()
-        game.remove_offline_players({player})
+        game.remove_offline_players({player.index})
     end)
     if not ok then
         log('[pw] 移除离线玩家失败 ' .. player.name .. '：' .. tostring(err))
@@ -258,18 +260,20 @@ end
 
 function M.tick_player_cleanup()
     local cleaned = 0
-    for name, record in pairs(cleanup_records()) do
-        local player = game.players[record.index] or game.players[name]
+    for key, record in pairs(cleanup_records()) do
+        local player = (record.index and game.players[record.index])
+            or (record.name and game.players[record.name])
+            or (type(key) == 'string' and game.players[key])
         if not (player and player.valid) then
-            cleanup_records()[name] = nil
+            cleanup_records()[key] = nil
         elseif player.connected then
-            cleanup_records()[name] = nil
+            cleanup_records()[key] = nil
         else
             local idle = game.tick - (player.last_online or game.tick)
             local due = record.due or ((player.last_online or game.tick) + PLAYER_CLEANUP_IDLE_TICKS)
             if idle >= PLAYER_CLEANUP_IDLE_TICKS and game.tick >= due then
                 if remove_offline_player(player) then
-                    cleanup_records()[name] = nil
+                    cleanup_records()[key] = nil
                     cleaned = cleaned + 1
                 end
             end
