@@ -273,7 +273,8 @@ function M.ensure_defaults()
 
     -- ══ 公共世界 ══
     -- 每星球各自的重置周期（分钟）。周期长短即难度分层：
-    -- nauvis 两小时一轮，是新人的练兵场；aquilo 六小时一轮，值得长线经营。
+    -- nauvis 两小时一轮，是新人的练兵场；aquilo 七小时一轮，值得长线经营。
+    -- 除 nauvis 外四颗星球是 3/4/5/7 小时，彼此互质；它们的直传开放窗口取本周期前半段。
     -- 【按名字索引，不按下标】——constants.PUBLIC_PLANETS 的顺序是
     -- {nauvis, vulcanus, gleba, fulgora, aquilo}，和这张表里 fulgora/gleba 的排列顺序不同，
     -- 谁按下标去取谁就会把这两个星球的周期错配。
@@ -283,9 +284,26 @@ function M.ensure_defaults()
     -- 每个星球的重置时刻对 60 取余就恒等于它的首次偏移（0/10/20/30/40 分），
     -- 五个余数两两不同，于是永远不可能有两个星球在同一分钟重置。
     -- 改成 90 或 150 这种非整倍数会让相位随时间漂移，某天开始两颗星球同时清空。
-    storage.world_reset_minutes = storage.world_reset_minutes or {
-        nauvis = 120, vulcanus = 180, fulgora = 240, gleba = 300, aquilo = 360,
+    local world_reset_defaults = {
+        nauvis = 120, vulcanus = 180, fulgora = 240, gleba = 300, aquilo = 420,
     }
+    if type(storage.world_reset_minutes) ~= 'table' then
+        storage.world_reset_minutes = {}
+    end
+    for name, minutes in pairs(world_reset_defaults) do
+        if storage.world_reset_minutes[name] == nil then storage.world_reset_minutes[name] = minutes end
+    end
+    -- 一次性把旧默认值 360 分钟迁到 420 分钟，并把已经排好的当前轮顺延 60 分钟；
+    -- 之后管理员再手动改成 360 也要尊重。
+    if not storage.world_reset_aquilo_420_migrated then
+        if storage.world_reset_minutes.aquilo == 360 then
+            storage.world_reset_minutes.aquilo = 420
+            if storage.world_reset_at and storage.world_reset_at.aquilo then
+                storage.world_reset_at.aquilo = storage.world_reset_at.aquilo + 60 * M.min_to_tick
+            end
+        end
+        storage.world_reset_aquilo_420_migrated = true
+    end
     -- 公共世界的矿脉尺寸倍率。这些星球一两小时就清空一次，原版尺寸是按「一局几十小时」
     -- 调的，直接用会让建设时间吃掉整轮的大半。数值是 MapGenSize：1 = 原版，2 = 大，
     -- 4 = 非常大，6 = 界面上的最大档。见 worlds.boost_resources，按 category 覆盖全部矿种。

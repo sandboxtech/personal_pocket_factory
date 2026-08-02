@@ -130,7 +130,7 @@ v1 用几个刻意互质的取模基数（3607 / 3613 / 613）错开几个周期
 
 现在（`scripts/tick.lua`）每类任务在 `storage.cycle_next_at` 里各自记一个「下次触发的
 tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔（`storage.cycle_phase_minutes`，
-默认 5 分钟）是两个独立配置项，改一个不影响另一个。五个星球各自的重置周期（1/2/3/4/5 小时）
+默认 5 分钟）是两个独立配置项，改一个不影响另一个。五个星球各自的重置周期（2/3/4/5/7 小时）
 单独走一套按名字索引的 per-planet 排期，不并入这套相位表，两套周期用固定的分钟偏移互相
 错开（见 `constants.cycle_base_offset_minutes` 旁的注释）。
 
@@ -185,7 +185,7 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | `world_climate_swing` / `world_terrain_scale` | 每轮气候摆幅 / 地貌块大小，都写进引擎的 `property_expression_names`，仅 Nauvis 有效 | 0.35 / 0.5 |
 | `public_size` / `dropoff_limit` | 公共星球边长（tile）/ 每人同时能放几个投递口（全宇宙合计） | 2048 / 12 |
 | `world_warn_minutes` | 重置前多久提醒星球上的人（分钟数组）；半路降落的按实际剩余时间单独提示 | {5, 1} |
-| `world_reset_minutes` | 各星球重置周期（table，按星球名索引；必须都是 60 的整数倍，错峰证明依赖这一点） | nauvis 120 / vulcanus 180 / fulgora 240 / gleba 300 / aquilo 360 |
+| `world_reset_minutes` | 各星球重置周期（table，按星球名索引；必须都是 60 的整数倍，错峰证明依赖这一点） | nauvis 120 / vulcanus 180 / fulgora 240 / gleba 300 / aquilo 420 |
 | `world_reset_offset_minutes` | 相邻星球首次排期的错开分钟数 | 10 |
 | `starter_items` | 新玩家起手物资，整张表替换；未知物品名跳过 | 铁板 500 / 铜板 200 / 石 100 / 木 100 |
 | `starter_equipment` / `starter_equipment_hours` | 起始装备清单（带装备栏的装甲排在前面）/ 复活补发的冷却小时数 | 模块装甲 + 机器人指令模块 + 6 太阳能板 + 10 建造机器人 / 3 |

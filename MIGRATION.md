@@ -57,7 +57,7 @@ tests/test_palette.lua
 /sc storage.ring_height = 64
 /sc storage.ring_concrete_height = 32
 /sc storage.ring_pond_half = 2
-/sc storage.world_reset_minutes = {nauvis=120, vulcanus=180, fulgora=240, gleba=300, aquilo=360}
+/sc storage.world_reset_minutes = {nauvis=120, vulcanus=180, fulgora=240, gleba=300, aquilo=420}
 /sc storage.tech_loss_k_max = 2
 ```
 
@@ -109,7 +109,7 @@ tests/test_palette.lua
 | **投递口 12 个** | 从 1 个改成 12 个，全宇宙合计。放第 13 个时**最早那个**自动退回背包 |
 | **起始装备** | 没有环的玩家进服直接补发；复活时按 3 小时冷却补发。内容：模块装甲 + 个人机器人指令模块 + 6 太阳能板 **+ 10 建设机器人** |
 | **科技漏水改了公式** | 每轮先掷一个 0~2 的系数，该轮所有科技共用。有的轮次风平浪静，有的成片地掉 |
-| **星球周期各 +1 小时** | 120 / 180 / 240 / 300 / 360 分钟 |
+| **星球周期各 +1 小时** | 120 / 180 / 240 / 300 / 420 分钟 |
 | **生命周期阈值** | 最短 3 小时、最长 30 小时；回收阈值改成公共化阈值的 **3 倍**（9~90 小时） |
 | **地貌改用引擎原生生成** | 见下面「地貌」 |
 | **Nauvis 每轮重置归零地图游玩时长** | `game.reset_time_played()`。不影响任何机制 |
