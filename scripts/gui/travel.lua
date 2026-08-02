@@ -56,6 +56,9 @@ function M.show(player)
             -- 禁用原因里带上星球图标 + 本地化星球名（util.planet_label），
             -- 不甩一个裸 surface 名当纯文本。
             go.tooltip = {'pw.world-not-ready', util.planet_label(name)}
+        elseif not worlds.is_travel_open(name) then
+            go.enabled = false
+            go.tooltip = {'pw.world-closed', util.planet_label(name)}
         end
     end
 

@@ -187,6 +187,16 @@ function M.time_left(planet_name)
     return (storage.world_reset_at[planet_name] or game.tick) - game.tick
 end
 
+-- 星球传送窗口：Nauvis 是母星，永远开放；其余星球只在本轮前半段允许直传。
+-- 这里故意绑定到重置排期：重置后一段时间是采集窗口，临近清空的一半时间不再让玩家直接进场。
+function M.is_travel_open(planet_name)
+    if planet_name == 'nauvis' then return true end
+    storage.world_reset_at = storage.world_reset_at or {}
+    local at = storage.world_reset_at[planet_name]
+    if not at then return true end
+    return (at - game.tick) > M.period_of(planet_name) / 2
+end
+
 -- 五个公共世界里，最近一个到期时刻。没有任何世界排期过时返回 nil。
 -- tick.lua 拿它做门控：查"下一个到期时刻是不是已经到了"，
 -- 而不是像 v1 那样用一个和真实周期无关的取模常数（3607）去隔几十秒抽查一次。
@@ -608,6 +618,10 @@ function M.travel(player, planet_name)
     local surface = game.surfaces[planet_name]
     if not surface or not surface.valid then
         player.print({'pw.world-not-ready', util.surface_label(planet_name)})
+        return false
+    end
+    if not M.is_travel_open(planet_name) then
+        player.print({'pw.world-closed', util.surface_label(planet_name)})
         return false
     end
     local origin = player.force.get_spawn_position(surface)

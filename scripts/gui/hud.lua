@@ -25,6 +25,7 @@ local stamina = require('scripts.stamina')
 local constants = require('scripts.constants')
 local util = require('scripts.util')
 local popup = require('scripts.gui.popup')
+local worlds = require('scripts.worlds')
 
 local M = {}
 
@@ -55,6 +56,9 @@ local function build_travel_bar(parent)
             -- 禁用图标，提示原因，和 travel.lua 弹窗里那一排按钮的兜底逻辑保持一致。
             go.enabled = false
             go.tooltip = {'pw.world-not-ready', util.planet_label(name)}
+        elseif not worlds.is_travel_open(name) then
+            go.enabled = false
+            go.tooltip = {'pw.world-closed', util.planet_label(name)}
         end
     end
 end
