@@ -55,7 +55,7 @@ v1 的口袋世界宽高都用 `MapGenSettings.width/height` 这种引擎级硬�
 
 12 种科技瓶（`geometry.SCIENCE_PACKS`）各自独立记一份经验，戴森环等级
 `L = Σᵢ 位数(expᵢ)`，位数即 `floor(log10(x)) + 1`（1~9 算 1 位），i 遍历 12 项；
-半长 `= max(32, 8 × (L + 4))`，即长度 `= max(64, 16 × (L + 4))`，下限 64。
+半长 `= max(32, 16 × (L + 4) / 2)`，即长度 `= max(64, 16 × (L + 4))`，下限 64。
 
 用位数而不是纯 `floor(log10)`，是为了让【攒到第 1 点就有第 1 级】：纯对数下
 1~9 点一律贡献 0，玩家攒完第一瓶经验界面纹丝不动，看起来像没生效。
@@ -176,7 +176,7 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | --- | --- | --- |
 | `stamina_ticks_per_point` / `stamina_pending_cap` / `stamina_balance_cap` / `stamina_initial_multiple` | 体力：每点对应多少 tick / 可领取池点数上限 / 体力池点数上限 / 新玩家初始体力池 = pending_cap × 这个倍数 | 60 / 100000 / 10000000 / 10 |
 | `quality_exp` | 品质 → 经验系数 | normal=1, uncommon=3, rare=5, epic=7, legendary=9 |
-| `ring_width` / `ring_concrete_width` / `ring_base_half_length` / `ring_length_per_level` | 环带总宽 / 中间可建带宽度 / 起步半长 / 每级上下各外推多少 tile | 32 / 16 / 32 / 8 |
+| `ring_width` / `ring_concrete_width` / `ring_base_half_length` / `ring_length_per_level` | 环带总宽 / 中间可建带宽度 / 起步半长 / 每级增加的总长度 | 32 / 16 / 32 / 16 |
 | `ring_tiles` | 语义砖名（start/grown/space/void）→ 真实砖原型名 | 见 `constants.lua` |
 | `ring_public_hours` / `ring_delete_multiple` / `ring_min_hours` | 离线多久变公共（老玩家上限）/ 删除阈值是它的几倍 / 缩放后的下限 | 30 / 3 / 3 |
 | `ring_hide_private` | 私人环是否从遥控视角平面列表隐藏（公共环一律显示） | true |

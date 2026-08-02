@@ -167,7 +167,7 @@ function M.half_length_of(player_name)
     return geometry.half_length(
         M.level_of(player_name),
         storage.ring_base_half_length or 32,
-        storage.ring_length_per_level or 8,
+        storage.ring_length_per_level or 16,
         storage.ring_length_bonus or 4)
 end
 

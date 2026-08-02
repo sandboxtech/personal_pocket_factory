@@ -50,15 +50,19 @@ function M.show(player)
         -- 所以 pw.travel-go-planet 做成带参数的 key，不能像 pw.travel-go 那样写死。
         -- 行文本只剩倒计时，不再重复星球名。
         local go = row.add{type = 'button', name = 'pw_go_' .. name, caption = {'pw.travel-go-planet', name}}
-        row.add{type = 'label', caption = {'pw.travel-world-row', left}}
         if not (surface and surface.valid) then
+            row.add{type = 'label', caption = {'pw.travel-world-row', left}}
             go.enabled = false
             -- 禁用原因里带上星球图标 + 本地化星球名（util.planet_label），
             -- 不甩一个裸 surface 名当纯文本。
             go.tooltip = {'pw.world-not-ready', util.planet_label(name)}
         elseif not worlds.is_travel_open(name) then
+            local opens = math.max(0, math.floor(worlds.travel_open_time_left(name) / constants.min_to_tick))
+            row.add{type = 'label', caption = {'pw.travel-world-opens-row', opens}}
             go.enabled = false
             go.tooltip = {'pw.world-closed', util.planet_label(name)}
+        else
+            row.add{type = 'label', caption = {'pw.travel-world-row', left}}
         end
     end
 

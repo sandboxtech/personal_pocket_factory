@@ -56,7 +56,7 @@ tests/test_palette.lua
 /sc storage.ring_min_hours = 3
 /sc storage.ring_width = 32
 /sc storage.ring_concrete_width = 16
-/sc storage.ring_length_per_level = 8
+/sc storage.ring_length_per_level = 16
 /sc storage.ring_length_bonus = 4
 /sc storage.ring_pond_half = 2
 /sc storage.dropoff_limit = 8
@@ -174,7 +174,7 @@ tests/test_palette.lua
 | `tech_loss_k` | **改名** → `tech_loss_k_max`，默认 1 → 2 |
 | `ring_delete_hours` | **改名** → `ring_delete_multiple`，含义从"小时数"变成"公共化阈值的倍数"，默认 50 → 3 |
 | `ring_min_hours` | 1 → **3** |
-| `ring_width` / `ring_concrete_width` / `ring_length_per_level` | 64 / 32 / 16 → **32 / 16 / 8** |
+| `ring_width` / `ring_concrete_width` / `ring_length_per_level` | 64 / 32 / 32 → **32 / 16 / 16** |
 | `ring_pond_half` | 3 → **2** |
 | `world_reset_minutes` | 各 **+60 分钟** |
 | `world_patch_tiles` | **删除** |

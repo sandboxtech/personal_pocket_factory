@@ -10,10 +10,11 @@ local util = require('scripts.util')
 
 local M = {}
 
--- 下一个能真正加宽等级环的门槛：10 的下一个整次幂。amount < 10 时门槛固定是 10，
--- 否则是比 amount 大的最小 10 次幂（1234 → 10000，10000 → 100000）。
+-- 下一个能真正拉长戴森环的门槛。0 点时攒到 1 点就会从 0 级变 1 级；
+-- 之后才是 10、100、1000 这些十进制门槛（1234 → 10000，10000 → 100000）。
 -- 进度条按这个算是【线性】的：1234/10000 就是 12% 进度条，不是 log10 那种压缩显示。
 local function next_threshold(amount)
+    if amount < 1 then return 1 end
     if amount < 10 then return 10 end
     return 10 ^ (math.floor(math.log(amount, 10)) + 1)
 end
@@ -39,11 +40,6 @@ function M.render(container, player)
     -- 这两处曾经因为一个是 floor(log10)、一个是「先加后 floor」而自相矛盾过，
     -- 改公式时【两边必须一起改】——它们没有共用同一个函数，只靠这条注释拴着。
     local sum = 0
-    -- 还差多远才能再长一级：不能再用「全局的分数差」，因为新公式下 sum 恒等于 level（都是整数），
-    -- level + 1 - sum 恒为 1，那条提示会失去意义。改成【找 12 项里离自己下一个数量级门槛最近的那项】，
-    -- 距离用真实数量（不是 log10 值）表示，跟每项进度条「1234 / 10000」的线性单位保持一致——
-    -- 玩家只要把那一项攒够这个数，等级就会真的涨。
-    local min_remaining = nil
     for _, short in ipairs(geometry.SCIENCE_PACKS) do
         local amount = table_data[short] or 0
         -- 和 geometry.ring_level 同一个算法：十进制位数 = floor(log10) + 1，攒到 1 点就算 1 级。
@@ -52,10 +48,6 @@ function M.render(container, player)
 
         local threshold = next_threshold(amount)
         local frac = math.max(0, math.min(1, amount / threshold))
-        local remaining = threshold - amount
-        if not min_remaining or remaining < min_remaining then
-            min_remaining = remaining
-        end
 
         -- progressbar 的 value 是 0~1 的浮点，不受本次「取整」范围约束（它不是显示文本）。
         grid.add{type = 'sprite', sprite = 'item/' .. geometry.pack_item_name(short)}
@@ -76,8 +68,6 @@ function M.render(container, player)
         container.add{type = 'label', caption = {'pw.exp-sum',
             math.floor(sum), level, ring.half_length_of(player.name) * 2}}
     end
-    container.add{type = 'label', caption = {'pw.exp-next',
-        util.readable(math.ceil(min_remaining or 0))}}
 end
 
 return M

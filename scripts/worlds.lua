@@ -205,6 +205,11 @@ function M.is_travel_open(planet_name)
     return (at - game.tick) > M.period_of(planet_name) / 2
 end
 
+function M.travel_open_time_left(planet_name)
+    if M.is_travel_open(planet_name) then return 0 end
+    return M.time_left(planet_name)
+end
+
 -- 五个公共世界里，最近一个到期时刻。没有任何世界排期过时返回 nil。
 -- tick.lua 拿它做门控：查"下一个到期时刻是不是已经到了"，
 -- 而不是像 v1 那样用一个和真实周期无关的取模常数（3607）去隔几十秒抽查一次。

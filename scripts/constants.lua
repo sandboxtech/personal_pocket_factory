@@ -69,7 +69,7 @@ M.TUNABLES = {
     {key = 'ring_width', default = 32, group = 'ring', applies = 'new'},
     {key = 'ring_concrete_width', default = 16, group = 'ring', applies = 'repaint'},
     {key = 'ring_base_half_length', default = 32, group = 'ring', applies = 'repaint'},
-    {key = 'ring_length_per_level', default = 8, group = 'ring', applies = 'grow'},
+    {key = 'ring_length_per_level', default = 16, group = 'ring', applies = 'grow'},
     {key = 'ring_length_bonus', default = 4, group = 'ring', applies = 'grow'},
     {key = 'ring_pond_half', default = 2, group = 'ring', applies = 'repaint'},
     {key = 'ring_public_hours', default = 30, group = 'lifecycle', applies = 'live'},
@@ -207,11 +207,17 @@ function M.ensure_defaults()
     if storage.ring_width == nil then storage.ring_width = storage.ring_height or 32 end
     if storage.ring_concrete_width == nil then storage.ring_concrete_width = storage.ring_concrete_height or 16 end
     if storage.ring_base_half_length == nil then storage.ring_base_half_length = storage.ring_base_half_width or 32 end
-    if storage.ring_length_per_level == nil then storage.ring_length_per_level = storage.ring_per_level or 8 end
+    if storage.ring_length_per_level == nil then storage.ring_length_per_level = (storage.ring_per_level and storage.ring_per_level * 2) or 16 end
     if storage.ring_length_bonus == nil then storage.ring_length_bonus = storage.ring_level_bonus or 4 end
 
-    -- ring_length_per_level 减半后，ring_length_bonus 从 2 调到 4：0 级仍是 64 格长，
-    -- 同时从第 1 级开始每级都能看见增长（总长 +16 格）。
+    if not storage.ring_length_per_level_total_migrated then
+        -- 早先这个字段实际是“每级每端外推多少格”，但名字和 UI 都像“每级总长度”。
+        -- 只迁移旧默认值 8 -> 16；管理员手动设过的 16/32 等值一律尊重。
+        if storage.ring_length_per_level == 8 then storage.ring_length_per_level = 16 end
+        storage.ring_length_per_level_total_migrated = true
+    end
+
+    -- ring_length_per_level 表示每级增加的总长度；bonus 取 4 时，0 级仍是 64 格长。
 
     -- 语义砖名 → 实际砖原型名。geometry.lua 是纯函数、不读 storage，
     -- 所以它只返回语义值，由 ring.lua 查这张表映射成真实砖名。

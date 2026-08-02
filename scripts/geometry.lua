@@ -50,17 +50,17 @@ function M.ring_level(exp_table)
     return sum
 end
 
--- 半长（tile）。新戴森环以原点为中心向上下两端对称生长，每升一级两端各外推 per_level。
+-- 半长（tile）。新戴森环以原点为中心向上下两端对称生长。
 --
--- level_bonus 是【附赠的级数】：半长 = per_level × (等级 + level_bonus)，
--- 配置 (32, 8, 4) 即【长度 = 16 × (等级和 + 4)】。
+-- level_bonus 是【附赠的级数】：总长度 = per_level × (等级 + level_bonus)，
+-- 配置 (32, 16, 4) 即【长度 = 16 × (等级和 + 4)】。
 -- 取 4 让等级 0（一点经验都没攒）时长度正好是下限 64，起始长度和"还没开始"这个状态对上。
 --
 -- 【曾经写成减法（等级 − 10），那是个真实的设计缺陷】：
 -- 仍然夹下限，但它只是脏数据的兜底（等级 >= 0 时永远不会触发）：
 -- 半宽为负会让 tile_at 把整条环判成 void，玩家掉进一个一格地板都没有的世界。
 function M.half_length(level, base_half_length, per_level, level_bonus)
-    local grown = per_level * (level + (level_bonus or 0))
+    local grown = math.floor(per_level * (level + (level_bonus or 0)) / 2)
     if grown < base_half_length then return base_half_length end
     return grown
 end
