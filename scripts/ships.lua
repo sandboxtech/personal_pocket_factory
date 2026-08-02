@@ -36,6 +36,8 @@ local function records()
     return storage.ships
 end
 
+local ensure_life_started
+
 -- 某人的船。顺手清掉指向已消失平台的记录 —— 登记表的自愈只发生在这一个地方，
 -- 其它函数都经由本函数取船，所以不会有第二处需要同步维护的清理逻辑。
 function M.of(player)
@@ -43,7 +45,10 @@ function M.of(player)
     for index, record in pairs(records()) do
         if record.owner == player.name then
             local platform = platform_of(index)
-            if platform then return platform, record end
+            if platform then
+                ensure_life_started(record, platform)
+                return platform, record
+            end
             records()[index] = nil   -- 在 pairs 里把已存在的键赋 nil 是 Lua 明确允许的
         end
     end
@@ -57,15 +62,26 @@ function M.is_ready(platform)
     return (surface and surface.valid) and true or false
 end
 
--- 这艘船的寿命（tick）。到期即销毁。
+-- 这艘船的寿命（tick）。从平台 surface 真正出现开始算，到期即销毁。
 function M.life_ticks()
     return (storage.ship_life_hours or 50) * constants.hour_to_tick
 end
 
--- 还能活多久（tick）。记录不存在返回 nil，已超期返回负数。
+-- 旧存档里已经成形的船没有 built 字段，只能沿用旧 created 字段作为寿命起点；
+-- 还没成形的船不补 built，等 on_surface_created 捕到真正建设完成的时刻。
+function ensure_life_started(record, platform)
+    if not record or record.built then return end
+    if M.is_ready(platform) then
+        record.built = record.created or game.tick
+    end
+end
+
+-- 还能活多久（tick）。记录不存在返回 nil；尚未成形返回完整寿命；已超期返回负数。
 function M.left_ticks(record)
     if not record then return nil end
-    return record.created + M.life_ticks() - game.tick
+    local started = record.built
+    if not started then return M.life_ticks() end
+    return started + M.life_ticks() - game.tick
 end
 
 -- 这艘船该有多宽：和主人的戴森环等级挂钩，公式是 per_level × (等级 + bonus)，
@@ -186,13 +202,20 @@ local function on_platform_surface(surface)
     local platform = surface.platform
     if not (platform and platform.valid) then return end
 
+    local rs = records()
+    local record = rs[platform.index]
+
     -- 脚本自己造的船在 M.create 里已经登记过；没登记的就是玩家从火箭井原生造的，
     -- 收编成无主飞船，创建时刻取"第一次看见它"的这一刻。
-    if not records()[platform.index] then
-        records()[platform.index] = {owner = nil, created = game.tick}
+    if not record then
+        record = {owner = nil, created = game.tick}
+        rs[platform.index] = record
     end
 
-    apply_bounds(platform, records()[platform.index].owner)
+    -- surface 出现才代表起步包已经发上来、船真正成形，寿命从这里开始扣。
+    record.built = record.built or game.tick
+
+    apply_bounds(platform, record.owner)
 end
 
 events.on(defines.events.on_surface_created, function(event)
@@ -208,7 +231,7 @@ end)
 -- 不提供"按 index 拆"的入口，从签名上就不给越权留位置。
 --
 -- 为什么需要主动拆：每人同时只能有一艘，想换个环绕星球、或者上一艘卡在
--- 等起步包的状态回不来了，除了等 50 小时到期就没别的出路。
+-- 等起步包的状态回不来了，需要有一个明确的放弃入口。
 function M.scuttle(player)
     local platform, record = M.of(player)
     if not platform then return false end
@@ -226,6 +249,7 @@ function M.all()
     for index, record in pairs(records()) do
         local platform = platform_of(index)
         if platform then
+            ensure_life_started(record, platform)
             -- space_location 在飞船停泊时是星球原型，航行途中是 nil。
             -- 只取 name 交给 GUI，GUI 自己决定怎么显示（图标 / "航行中"）。
             local location = platform.space_location
@@ -260,7 +284,10 @@ function M.tick_lifecycle()
         local platform = platform_of(index)
         if not platform then
             records()[index] = nil
-        elseif M.left_ticks(record) <= 0 then
+        else
+            ensure_life_started(record, platform)
+        end
+        if platform and record.built and M.left_ticks(record) <= 0 then
             local label = record.owner or platform.name
             platform.destroy()
             records()[index] = nil
