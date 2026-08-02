@@ -69,12 +69,12 @@ function M.render(container, player)
         end
     end
 
-    -- "合计 / 等级 / 环宽"是给老玩家复核算法用的汇总数字；等级本身 HUD 上一直都能看到，
-    -- 新人不需要在这里再看一遍，也不需要环宽这种优化向数值。
+    -- "合计 / 等级 / 环长"是给老玩家复核算法用的汇总数字；等级本身 HUD 上一直都能看到，
+    -- 新人不需要在这里再看一遍，也不需要环长这种优化向数值。
     if veteran then
         local level = ring.level_of(player.name)
         container.add{type = 'label', caption = {'pw.exp-sum',
-            math.floor(sum), level, ring.half_width_of(player.name) * 2}}
+            math.floor(sum), level, ring.half_length_of(player.name) * 2}}
     end
     container.add{type = 'label', caption = {'pw.exp-next',
         util.readable(math.ceil(min_remaining or 0))}}

@@ -2,7 +2,7 @@
 -- 跑法：lua5.4 tests/test_expio.lua （从场景根目录）
 --
 -- 【为什么这一段值得单测】：导入是唯一一条把【外部文件里的任意数据】写进 storage 的路径。
--- 一个 NaN 经验不会当场报错，它会让 ring_level 算出 NaN、半宽算出 NaN，
+-- 一个 NaN 经验不会当场报错，它会让 ring_level 算出 NaN、半长算出 NaN，
 -- 直到涂砖那一刻才炸，而那时的报错信息里没有任何东西指向"导入"这一步。
 -- 所以脏数据必须在 validate 里就被挡住，而 validate 恰好是纯函数，能在游戏外测。
 package.path = '?.lua;' .. package.path

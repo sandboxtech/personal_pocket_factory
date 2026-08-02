@@ -39,8 +39,8 @@ function M.ensure_surfaces()
     end
 end
 
--- 把矿脉调大。公共世界几小时清空一次，原版矿脉尺寸是按几十小时一局调的，
--- 照搬会让建设时间吃掉整轮的大半。
+-- 调整矿脉参数。公共世界几小时清空一次，矿脉既要更容易撞见，也不能一格挖太久：
+-- Nauvis 的矿脉面积/频率按原型或已有扰动翻倍；所有星球的单格矿量压到原来的 1/16。
 --
 -- 【只放大已有的矿，绝不新增条目】：autoplace_controls 里出现某个矿名，含义是
 -- "这颗星球生成这种矿"，不是"如果生成就用这个尺寸"。遍历全局矿种写进去的话，
@@ -48,18 +48,26 @@ end
 --
 -- 仍按 category == 'resource' 过滤：这张表里还有地形/悬崖/敌人的控制项，
 -- 把 size 塞给敌人控制项会真的改变虫子数量。
-local function boost_resources(mgs)
+local function boost_resources(mgs, planet_name)
     local boost = storage.world_resource_boost
     if type(boost) ~= 'table' then return end
+    local planet_boost = boost[planet_name] or {}
+    local default_boost = boost.default or {}
 
     for name, c in pairs(mgs.autoplace_controls or {}) do
         local proto = prototypes.autoplace_control[name]
         if proto and proto.category == 'resource' then
-            c.size = boost.size or c.size
-            c.frequency = boost.frequency or c.frequency
+            if planet_boost.size or default_boost.size then
+                c.size = (c.size or 1) * (planet_boost.size or default_boost.size or 1)
+            end
+            if planet_boost.frequency or default_boost.frequency then
+                c.frequency = (c.frequency or 1) * (planet_boost.frequency or default_boost.frequency or 1)
+            end
             -- richness 不是每种矿都支持（proto.richness 说明它认不认这个字段）。
             -- 对不支持的矿硬塞 richness 是无意义的，跳过更干净。
-            if proto.richness then c.richness = boost.richness or c.richness end
+            if proto.richness and (planet_boost.richness or default_boost.richness) then
+                c.richness = (c.richness or 1) * (planet_boost.richness or default_boost.richness or 1)
+            end
             mgs.autoplace_controls[name] = c
         end
     end
@@ -124,7 +132,7 @@ function M.apply_bounds(surface, seed)
     mgs.width = size
     mgs.height = size
     if seed then mgs.seed = seed end
-    boost_resources(mgs)
+    boost_resources(mgs, surface.name)
 
     -- 气候覆写单独试一次，失败了退回到"只有边界和矿脉"的设置重新写。
     -- property_expression_names 的键是引擎内部表达式名，写错一个字符整条赋值就抛错，
@@ -132,7 +140,7 @@ function M.apply_bounds(surface, seed)
     local plain = surface.map_gen_settings
     plain.width, plain.height = size, size
     if seed then plain.seed = seed end
-    boost_resources(plain)
+    boost_resources(plain, surface.name)
 
     randomize_climate(mgs, surface.name, seed or mgs.seed or 0)
     local ok, err = pcall(function() surface.map_gen_settings = mgs end)

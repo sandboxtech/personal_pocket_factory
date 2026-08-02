@@ -112,10 +112,10 @@ function M.refresh(player)
     local balance = row.add{type = 'label', caption = {'pw.hud-balance', stamina.balance(name)}}
     balance.style.font = 'default-bold'
 
-    -- 戴森环宽度：新人不需要这个数字也能玩（怎么变宽在「经验」窗口和玩法说明里都讲了），
+    -- 戴森环长度：新人不需要这个数字也能玩（怎么变长在「经验」窗口和玩法说明里都讲了），
     -- 只有老玩家（在线满 storage.detail_hours 小时）才在 HUD 上多看到这一项。
     if util.is_veteran(player) then
-        row.add{type = 'label', caption = {'pw.hud-ring-width', ring.half_width_of(name) * 2}}
+        row.add{type = 'label', caption = {'pw.hud-ring-length', ring.half_length_of(name) * 2}}
     end
 
     -- 竖线分隔【只读数据】和【会发生事情的按钮】，见文件头 ② 。

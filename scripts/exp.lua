@@ -1,6 +1,6 @@
 -- 12 种经验 + 兑换。本场景唯一的跨重置进度。
 --
--- 每种科技瓶对应一种经验，分开记账。戴森环的宽度 = 16 × (4 + Σ位数(expᵢ))。
+-- 每种科技瓶对应一种经验，分开记账。戴森环的长度 = 16 × (4 + Σ位数(expᵢ))。
 -- 因为 log10(1) = 0，任何一种瓶子没攒过那一项就是 0 —— 这逼玩家集齐 12 种、跑遍五个星球。
 --
 -- 为什么不需要跨瓶种定价：12 种各自独立取 log10、互不换算，
@@ -100,7 +100,7 @@ end
 -- 顺序：先算清楚（simulate_inventory）→ 再扣体力 → 再移除物品 → 再加经验。
 -- 体力扣不掉就整个中止，不会出现「物品没了但没给经验」。
 --
--- 是否重算环宽（ring.apply_growth）不在这里做：调用方各自决定什么时候调，
+-- 是否重算环长（ring.apply_growth）不在这里做：调用方各自决定什么时候调，
 -- 因为箱子自动兑换要在离线玩家身上也生效，不能假设调用时手上有一个「当前操作的 player」在场景里活跃。
 local function convert_inventory(inventory, player_name)
     if not inventory then return nil, 'pw.convert-no-character' end
@@ -130,7 +130,7 @@ function M.convert(player)
     local inventory = util.main_inventory(player)
     local total_gain, entries, points_used = convert_inventory(inventory, player.name)
     if total_gain then
-        -- 兑换完立刻重算环宽并扩容，玩家点完按钮就能看见世界变宽
+        -- 兑换完立刻重算环长并扩容，玩家点完按钮就能看见世界变长
         ring.apply_growth(player)
     end
     return total_gain, entries, points_used
@@ -161,7 +161,7 @@ function M.tick_auto_convert()
         -- 在线的每轮都过；离线的只在闸门打开的那一轮过。
         if (player.connected or offline_due)
                 and storage.ring_state[player.name] ~= 'public' then
-            local surface = game.surfaces[ring.surface_name_for(player.index)]
+            local surface = game.surfaces[ring.surface_name_for(player)]
             if surface and surface.valid then
                 -- 系统收货箱共享同一份 inventory（都挂着同一个 link_id），
                 -- 随便找到其中一个读它的 chest inventory 就是那份共享库存本身，
@@ -171,7 +171,7 @@ function M.tick_auto_convert()
                     local inventory = chest.get_inventory(defines.inventory.chest)
                     local total_gain = convert_inventory(inventory, player.name)
                     if total_gain then
-                        -- 离线时也要让环该变宽就变宽，回来时直接看到长大的环。
+                        -- 离线时也要让环该变长就变长，回来时直接看到长大的环。
                         ring.apply_growth(player)
                         -- 在线玩家给个提示；离线的不用管（player.print 对离线玩家仍然安全，
                         -- 但打印出来的消息没人看得到，不如干脆跳过）。

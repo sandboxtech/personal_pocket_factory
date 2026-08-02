@@ -6,7 +6,7 @@
 
 ## 核心玩法
 
-每个玩家有一条专属的戴森环（独立 surface，高 32 tile、初始宽 64 tile、宽度随经验增长的环带），环里一颗矿
+每个玩家有一条专属的戴森环（独立 surface，宽 32 tile、初始长 64 tile、长度随经验增长的环带），环里一颗矿
 都没有。资源全在五个公共星球（Space Age 的五颗真星球）里，各自独立周期重置。玩家去公共星球
 铺关联箱当投递口，货物自动流回戴森环正中央固定的收货箱阵。收货箱阵按 12 种科技瓶的种类分别
 计入经验，经验决定环能长多宽，是全场景唯一跨重置保留的进度。公共星球重置时还会随机撤销全服
@@ -32,34 +32,34 @@ surface」实现，不需要用 force 来隔。
 让所有未显式列出的 entity/tile/decorative 都不生成，比逐项把 autoplace_controls 归零更彻底，
 也不会漏掉 mod 新增的资源。
 
-### 三、环形状：纵向硬边界 + 横向手工涂砖的混合方案
+### 三、环形状：横向硬边界 + 纵向手工涂砖的混合方案
 
 v1 的口袋世界宽高都用 `MapGenSettings.width/height` 这种引擎级硬边界：零成本，但只能是
-矩形，而且在已存在的 surface 上能不能改大从未验证过。戴森环要「中间实心、上下临空、两侧
+矩形，而且在已存在的 surface 上能不能改大从未验证过。戴森环要「中间实心、左右临空、上下
 随经验增长」的形状，硬边界做不出来。
 
 现在的方案（`scripts/ring.lua` + `scripts/geometry.lua`）：
 
-- **纵向**仍用硬边界：`map_gen_settings.height = 32`，`|y| >= 16` 的区块引擎根本不生成，
-  零成本零代码，白拿一份高度上限。
-- **横向**改成无限（`width = 0`），交给 `on_chunk_generated` 手工涂 `out-of-map` 的墙。
+- **横向**仍用硬边界：`map_gen_settings.width = 32`，`|x| >= 16` 的区块引擎根本不生成，
+  零成本零代码，白拿一份宽度上限。
+- **纵向**改成无限（`height = 0`），交给 `on_chunk_generated` 手工涂 `out-of-map` 的墙。
   涂出来的墙玩家走不过去，带不动引擎往外生成，唯一代价是玩家站在边缘时引擎会顺手预生成
   两三个溢出区块，量级是每人几个，可接受。
 
-`geometry.lua` 是不碰任何 Factorio 全局的纯函数模块，环的宽度、等级、每格该铺哪种语义砖
+`geometry.lua` 是不碰任何 Factorio 全局的纯函数模块，环的长度、等级、每格该铺哪种语义砖
 全在这里算，可以用 `lua5.4 tests/test_geometry.lua` 脱离游戏跑单测。`ring.lua` 只负责把
 这里算出的语义值查表（`storage.ring_tiles`）换成真实砖名再 `set_tiles`，且逐区块涂（不是
-一次涂整条 32 高的带），避免往还未生成的兄弟区块里写 tile。
+一次涂整条 32 宽的带），避免往还未生成的兄弟区块里写 tile。
 
 ### 四、12 种经验分开记账
 
 12 种科技瓶（`geometry.SCIENCE_PACKS`）各自独立记一份经验，戴森环等级
 `L = Σᵢ 位数(expᵢ)`，位数即 `floor(log10(x)) + 1`（1~9 算 1 位），i 遍历 12 项；
-半宽 `= max(32, 8 × (L + 4))`，即宽度 `= max(64, 16 × (L + 4))`，下限 64。
+半长 `= max(32, 8 × (L + 4))`，即长度 `= max(64, 16 × (L + 4))`，下限 64。
 
 用位数而不是纯 `floor(log10)`，是为了让【攒到第 1 点就有第 1 级】：纯对数下
 1~9 点一律贡献 0，玩家攒完第一瓶经验界面纹丝不动，看起来像没生效。
-白送 4 级是配套算出来的 —— 0 级初始宽度仍是 64，每升一级总宽增加 16，
+白送 4 级是配套算出来的 —— 0 级初始长度仍是 64，每升一级总长增加 16，
 也就是上一版每级增长的一半（`tests/test_geometry.lua` 里有公式对照）。
 
 为什么每项各自 floor 再相加，而不是先加起来最后 floor 一次：两者结果真的不同，两种瓶子
@@ -140,7 +140,7 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | `control.lua` | 入口。按依赖顺序加载各模块；`on_init` 建五星球 surface、套边界、首次错峰排期、解锁星图；`on_configuration_changed` 补齐新增默认字段。 |
 | `scripts/constants.lua` | storage 默认值的唯一出生地（`ensure_defaults`）+ 全局常量（星球列表、戴森环 map_gen、旧存档迁移）。 |
 | `scripts/events.lua` | 事件总线：同一事件多处 `events.on()` 订阅、内部只 `script.on_event` 一次再分发；`events.safe()` 把 handler 包成出错只播报不崩服。 |
-| `scripts/geometry.lua` | 纯函数模块：环等级、半宽、tile 语义计算，戴森环形状的唯一真相源，可脱离游戏跑单测。 |
+| `scripts/geometry.lua` | 纯函数模块：环等级、半长、tile 语义计算，戴森环形状的唯一真相源，可脱离游戏跑单测。 |
 | `scripts/ring.lua` | 戴森环涂砖与扩容：把 geometry 算出的语义值查表换成真实砖名，`on_chunk_generated` 的订阅入口，升级时逐区块行重涂新增竖带。 |
 | `scripts/bootstrap.lua` | 初始化/修复的那一套幂等步骤，`on_init`、`on_configuration_changed`、`/pw-repair` 三个调用方共用。 |
 | `scripts/expio.lua` | 玩家进度（经验 + 体力）的导出与导入。导出走 `helpers.write_file`，导入只能靠加载阶段 `pcall(require, 'exp_import')`——引擎没有运行时读文件的 API。 |
@@ -176,7 +176,7 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | --- | --- | --- |
 | `stamina_ticks_per_point` / `stamina_pending_cap` / `stamina_balance_cap` / `stamina_initial_multiple` | 体力：每点对应多少 tick / 可领取池点数上限 / 体力池点数上限 / 新玩家初始体力池 = pending_cap × 这个倍数 | 60 / 100000 / 10000000 / 10 |
 | `quality_exp` | 品质 → 经验系数 | normal=1, uncommon=3, rare=5, epic=7, legendary=9 |
-| `ring_height` / `ring_concrete_height` / `ring_base_half_width` / `ring_per_level` | 环带总高 / 中间可建带高度 / 起步半宽 / 每级两侧各外推多少 tile | 32 / 16 / 32 / 8 |
+| `ring_width` / `ring_concrete_width` / `ring_base_half_length` / `ring_length_per_level` | 环带总宽 / 中间可建带宽度 / 起步半长 / 每级上下各外推多少 tile | 32 / 16 / 32 / 8 |
 | `ring_tiles` | 语义砖名（start/grown/space/void）→ 真实砖原型名 | 见 `constants.lua` |
 | `ring_public_hours` / `ring_delete_multiple` / `ring_min_hours` | 离线多久变公共（老玩家上限）/ 删除阈值是它的几倍 / 缩放后的下限 | 30 / 3 / 3 |
 | `ring_hide_private` | 私人环是否从遥控视角平面列表隐藏（公共环一律显示） | true |
@@ -202,7 +202,7 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | `exp[玩家名]` | 12 键 table，各科技瓶累计经验 |
 | `exp_log[玩家名]` | 最近一次兑换明细 |
 | `ring_state[玩家名]` | `'private'` / `'public'`，离线状态机的真相源 |
-| `ring_applied_half[玩家名]` | 已经涂到的半宽，扩容时用来判断新增竖带的范围 |
+| `ring_applied_half_length[玩家名]` | 已经涂到的半长，扩容时用来判断新增上下两段的范围 |
 | `world_reset_at[星球名]` / `world_run[星球名]` | 错峰排期真相源 / 已重置轮次 |
 | `tech_loss_next_at` | 相位调度器写、`worlds.tech_loss_time_left()` 读，倒计时 UI 用 |
 | `cycle_next_at[任务key]` | 相位调度器每类任务的下次触发 tick |
@@ -238,13 +238,13 @@ on_player_joined_game:
 相位调度器（script.on_nth_tick(3600)，约 1 分钟一次）:
     phase 0  worlds.tick_tech_loss()      全科技表判定，按瓶子种数掷概率撤销
     phase 1  pockets.tick_lifecycle()     扫描离线玩家，private->public->删除两个跃迁
-    phase 2  exp.tick_auto_convert()      吃每人戴森环收货箱共享库存，转经验、重算环宽
+    phase 2  exp.tick_auto_convert()      吃每人戴森环收货箱共享库存，转经验、重算环长
     （不进相位表）worlds.next_reset_at() 到期就重置一个星球；到点刷新在线玩家 HUD
 
 兑换（玩家点「状态」窗口的兑换按钮，`exp.convert`）:
     exp.preview 用体力池点数模拟一遍（quota = balance）
     -> 实际执行：先 stamina.spend 扣体力，扣不掉就整个中止
-    -> 再移除背包物品 -> exp.add 记经验 -> ring.apply_growth 重算宽度并涂新增竖带
+    -> 再移除背包物品 -> exp.add 记经验 -> ring.apply_growth 重算长度并涂新增上下两段
 
 重置（worlds.tick_check 每次只处理一个到期的星球）:
     evacuate 撤人 -> derive_seed 按下一轮次号派生新种子
@@ -333,11 +333,11 @@ on_player_joined_game:
 首次实机验收（当初计划让 Task 3-8 各自进游戏验证，因场景当时加载不了而推迟，之后一直
 没有集中补跑，仍然只有 `luac -p` + 代码审查这一层保障）：
 
-- 环形状：原点混凝土带、上下 `empty-space`、左右 `out-of-map` 墙、`|y| >= 16` 的区块
+- 环形状：原点混凝土带、左右 `empty-space`、上下 `out-of-map` 墙、`|x| >= 16` 的区块
   确实不生成。
 - 8 箱阵：数量、`link_id`、不可摧毁不可挖、机械臂可正常存取；木箱三态转换（戴森环内
   不变、公共星球变关联箱、手搓直接产出关联箱物品）。
-- 兑换：攒够对应数量的科技瓶后等级和半宽按公式变化，扩容后新增的竖带砖块正确。
+- 兑换：攒够对应数量的科技瓶后等级和半长按公式变化，扩容后新增的上下两段砖块正确。
 - 离线生命周期：公共期 `link_id` 变成 `0`，主人回归后恢复成 `player.index`。
 - 科技丢失：`automation`（n=1，应为 1%）、`logistic`（n=2，应为 2%）等具体科技的概率
   与瓶子种数对应；`k` 调到很大时是否真的必丢。

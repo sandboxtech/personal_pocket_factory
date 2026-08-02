@@ -1,4 +1,4 @@
--- 戴森环：每个玩家一个专属 surface，一条高 32 的环带（中间 16 格可建、上下各 8 格临空），没有任何资源。
+-- 戴森环：每个玩家一个专属 surface，一条宽 32、上下增长的环带（中间 16 格可建、左右各 8 格临空），没有任何资源。
 --
 -- 定位：戴森环是【加工厂】，公共世界是【矿场】。
 -- 环里一颗矿都没有，所有原料必须从公共世界运回来（靠关联箱，见 chests.lua）。
@@ -15,14 +15,13 @@ local M = {}
 local PLAYER_CLEANUP_IDLE_TICKS = 90 * constants.hour_to_tick
 local PUBLIC_RING_LIFE_TICKS = 100 * constants.hour_to_tick
 
--- surface 名用 player.index 而不是 player.name：玩家名可能含空格或特殊字符，
--- 而 index 在存档内稳定且必定合法。storage 里仍然按玩家名索引，方便改名后继承。
 function M.surface_name(player)
-    return ring.surface_name_for(player.index)
+    return ring.surface_name_for(player)
 end
 
 function M.get(player)
-    return game.surfaces[M.surface_name(player)]
+    local name = M.surface_name(player)
+    return name and game.surfaces[name] or nil
 end
 
 -- 这条环该不该出现在遥控视角左侧的平面列表里。
@@ -67,7 +66,8 @@ local function reveal_surface(surface)
     end
 end
 
--- 平面列表里显示玩家名而不是内部名 ring2_7。
+-- 平面列表里显示玩家名。私人环 surface 名也优先就是玩家名；兜底名带 index 时，
+-- localised_name 仍然只显示玩家名。
 -- 【改 localised_name，不是 name】：name 是全服唯一的键，只有迁移旧环到公共遗迹时才会改。
 -- 每次 ensure 都重设，跟上玩家改名。
 local function sync_label(surface, player)
@@ -91,7 +91,8 @@ local function create_surface(player)
     local seed = (player.index * 7919 + 104729) % 2147483647
     local surface = game.create_surface(
         M.surface_name(player),
-        constants.ring_map_gen(seed, storage.ring_height or 32))
+        constants.ring_map_gen(seed, storage.ring_width or 32))
+    ring.record_private_surface(player, surface.name)
 
     surface.freeze_daytime = true    -- 永昼本身由 sync_daylight 按配置设
     surface.show_clouds = false
@@ -135,9 +136,10 @@ local function make_public_record(surface, old_name, new_name, id)
     local owner = owner_index and game.players[owner_index]
     local owner_name = owner and owner.name or nil
     local layout = storage.legacy_ring_layout or {}
-    local half_width = (owner_name and storage.ring_applied_half and storage.ring_applied_half[owner_name])
-        or (owner_name and ring.half_width_of(owner_name))
-        or (storage.ring_base_half_width or 32)
+    local half_length = (owner_name and storage.ring_applied_half and storage.ring_applied_half[owner_name])
+        or (owner_name and storage.ring_applied_half_length and storage.ring_applied_half_length[owner_name])
+        or (owner_name and ring.half_length_of(owner_name))
+        or (storage.ring_base_half_length or storage.ring_base_half_width or 32)
 
     storage.public_rings[new_name] = {
         id = id,
@@ -146,7 +148,9 @@ local function make_public_record(surface, old_name, new_name, id)
         original_owner_index = owner_index,
         created = game.tick,
         expires = game.tick + PUBLIC_RING_LIFE_TICKS,
-        half_width = half_width,
+        orientation = 'horizontal',
+        half_length = half_length,
+        half_width = half_length,
         ring_height = layout.ring_height or 64,
         concrete_height = layout.concrete_height or 32,
         base_half_width = layout.base_half_width or 32,
@@ -162,15 +166,17 @@ local function make_public_record(surface, old_name, new_name, id)
     if owner_name then
         storage.ring_state[owner_name] = nil
         storage.ring_applied_half[owner_name] = nil
+        if storage.ring_applied_half_length then storage.ring_applied_half_length[owner_name] = nil end
     end
 end
 
--- 把旧版 ring_<玩家index> 迁移成 100 小时公共遗迹；玩家自己的新环使用 ring2_<index>。
+-- 把旧版 ring_<玩家index> 迁移成 100 小时公共遗迹；玩家自己的新环优先直接使用玩家名。
 -- 迁移是幂等的：改过名的 public_N 不再满足 legacy 判据，重复调用只会补齐记录。
 function M.migrate_legacy_rings()
     storage.public_rings = storage.public_rings or {}
     storage.ring_state = storage.ring_state or {}
     storage.ring_applied_half = storage.ring_applied_half or {}
+    storage.ring_applied_half_length = storage.ring_applied_half_length or {}
 
     local legacy_surfaces = {}
     local public_surfaces = {}
@@ -216,19 +222,19 @@ function M.ensure(player)
     end
 
     -- 同步生成出生区，玩家马上就要落地，异步排队会落进还没生成的区块。
-    -- 逐区块请求（ring.ensure_chunks），不给大半径——半径是正方形，横向无边界会真的生成出去。
-    local half = ring.half_width_of(player.name)
-    local ring_height = storage.ring_height or 32
-    local y_half = math.floor(ring_height / 2)
-    ring.ensure_chunks(surface, -half, half, -y_half, y_half)
+    -- 逐区块请求（ring.ensure_chunks），不给大半径——半径是正方形，纵向无边界会真的生成出去。
+    local half = ring.half_length_of(player.name)
+    local ring_width = storage.ring_width or 32
+    local x_half = math.floor(ring_width / 2)
+    ring.ensure_chunks(surface, -x_half, x_half, -half, half)
 
     -- 收货箱阵。必须排在 ensure_chunks 之后：箱子要落在已生成、已涂好砖的区块上。
     chests.ensure_array(surface, player)
 
-    -- 记账项用「没有才写」，不能无条件覆盖：ring_applied_half 会被 ring.apply_growth
+    -- 记账项用「没有才写」，不能无条件覆盖：ring_applied_half_length 会被 ring.apply_growth
     -- 推到更大的值，ring_state 会被生命周期推到 'public'，这里一律覆盖的话会把它们打回原形。
-    storage.ring_applied_half = storage.ring_applied_half or {}
-    storage.ring_applied_half[player.name] = storage.ring_applied_half[player.name] or half
+    storage.ring_applied_half_length = storage.ring_applied_half_length or {}
+    storage.ring_applied_half_length[player.name] = storage.ring_applied_half_length[player.name] or half
 
     storage.ring_state = storage.ring_state or {}
     storage.ring_state[player.name] = storage.ring_state[player.name] or 'private'
@@ -254,7 +260,7 @@ function M.ensure(player)
     if storage.debug then
         for _, p in pairs(game.connected_players) do
             if p.admin then
-                p.print('[pw] 戴森环就绪 ' .. surface.name .. ' 半宽 ' .. half)
+                p.print('[pw] 戴森环就绪 ' .. surface.name .. ' 半长 ' .. half)
             end
         end
     end
@@ -425,6 +431,9 @@ function M.delete_ring(player)
     storage.ring_state[player.name] = nil
     storage.ring_applied_half = storage.ring_applied_half or {}
     storage.ring_applied_half[player.name] = nil
+    storage.ring_applied_half_length = storage.ring_applied_half_length or {}
+    storage.ring_applied_half_length[player.name] = nil
+    ring.forget_private_surface(player)
     return true
 end
 
@@ -441,6 +450,7 @@ end
 function M.delete_all_rings()
     storage.ring_state = storage.ring_state or {}
     storage.ring_applied_half = storage.ring_applied_half or {}
+    storage.ring_applied_half_length = storage.ring_applied_half_length or {}
 
     local deleted = 0
     for _, player in pairs(game.players) do
@@ -451,6 +461,8 @@ function M.delete_all_rings()
             M.queue_player_cleanup(player)
             storage.ring_state[player.name] = nil
             storage.ring_applied_half[player.name] = nil
+            storage.ring_applied_half_length[player.name] = nil
+            ring.forget_private_surface(player)
             deleted = deleted + 1
         end
     end
@@ -583,10 +595,10 @@ function M.all_rings()
                 owner_name = player.name,
                 owner_index = player.index,
                 idle_hours = math.floor(idle),
-                -- 等级和半宽一起给出来：半宽本来就是等级算的，让调用方自己再算一遍
-                -- 等于把"环宽怎么来的"这条规则复制到 GUI 里，改规则时会漏改一处。
+                -- 等级和半长一起给出来：半长本来就是等级算的，让调用方自己再算一遍
+                -- 等于把"环长怎么来的"这条规则复制到 GUI 里，改规则时会漏改一处。
                 level = ring.level_of(player.name),
-                half_width = ring.half_width_of(player.name),
+                half_length = ring.half_length_of(player.name),
                 state = storage.ring_state[player.name] or 'private',
                 public_hours = public_hours,
                 enterable = idle >= public_hours,

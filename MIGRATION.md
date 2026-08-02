@@ -54,10 +54,10 @@ tests/test_palette.lua
 
 ```
 /sc storage.ring_min_hours = 3
-/sc storage.ring_height = 32
-/sc storage.ring_concrete_height = 16
-/sc storage.ring_per_level = 8
-/sc storage.ring_level_bonus = 4
+/sc storage.ring_width = 32
+/sc storage.ring_concrete_width = 16
+/sc storage.ring_length_per_level = 8
+/sc storage.ring_length_bonus = 4
 /sc storage.ring_pond_half = 2
 /sc storage.dropoff_limit = 8
 /sc storage.world_reset_minutes = {nauvis=120, vulcanus=180, fulgora=240, gleba=300, aquilo=420}
@@ -106,7 +106,7 @@ tests/test_palette.lua
 | 改动 | 说明 |
 | --- | --- |
 | **旧环转公共遗迹** | 旧 `ring_*` 改名成 `public_*`，全服总览可进入，100 小时后回收 |
-| **环变小了** | 高 32（中间 16 可建 + 上下各 8 临空）。每级增长也减半 |
+| **环变窄了** | 宽 32（中间 16 可建 + 左右各 8 临空）。长度每级增长减半 |
 | **收货箱横排** | 上下两行各 4 个，夹着水池，机械臂从箱阵外侧取货 |
 | **水池 4×4** | 和箱行之间各留 2 格岸，取水面从左右两侧变成**四面都能架抽取泵** |
 | **投递口 8 个** | 从 12 个改成 8 个，全宇宙合计。放第 9 个时**最早那个**自动退回背包 |
@@ -174,7 +174,7 @@ tests/test_palette.lua
 | `tech_loss_k` | **改名** → `tech_loss_k_max`，默认 1 → 2 |
 | `ring_delete_hours` | **改名** → `ring_delete_multiple`，含义从"小时数"变成"公共化阈值的倍数"，默认 50 → 3 |
 | `ring_min_hours` | 1 → **3** |
-| `ring_height` / `ring_concrete_height` / `ring_per_level` | 64 / 32 / 16 → **32 / 16 / 8** |
+| `ring_width` / `ring_concrete_width` / `ring_length_per_level` | 64 / 32 / 16 → **32 / 16 / 8** |
 | `ring_pond_half` | 3 → **2** |
 | `world_reset_minutes` | 各 **+60 分钟** |
 | `world_patch_tiles` | **删除** |
@@ -195,7 +195,7 @@ tests/test_palette.lua
 跑完上面四步，按顺序确认：
 
 1. `/pw-config` 打得开，`world` 组里能看到 `world_climate_swing` 和 `world_terrain_scale`
-2. `/pw-config` 里 `ring_min_hours` 显示 **3**、`ring_height` 显示 **32**
+2. `/pw-config` 里 `ring_min_hours` 显示 **3**、`ring_width` 显示 **32**
 3. 进自己的环：水池 4×4，上下各一行 4 个箱子，中间隔着 2 格岸
 4. 手搓一个木箱放到环外 —— 变成关联箱，塞东西进去能到环里的收货箱
 5. 等 Nauvis 下一轮重置，上去看**有没有废料**（有就是第 2 步没跑成）

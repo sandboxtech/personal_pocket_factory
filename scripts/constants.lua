@@ -54,7 +54,7 @@ M.RING_SPAWN = {0, 0}
 -- 有些字段改完立刻全服生效，有些只对之后新建的东西管用，改了不重开就永远看不到效果，
 -- 管理员没法从字段名看出区别，试一次不生效又会以为是 bug。取值：
 --   live    立刻对所有人生效（每次用到时现读，不缓存）
---   grow    立刻重算，但环只会变宽不会变窄（缩小要等下次重建）
+--   grow    立刻重算，但环只会变长不会缩短（缩小要等下次重建）
 --   repaint 只影响之后新涂的砖，已经铺好的地不动
 --   reset   下次那个世界重置时才套用
 --   new     只对之后新建的东西生效，已存在的不变
@@ -66,11 +66,11 @@ M.TUNABLES = {
     {key = 'stamina_pending_cap', default = 100000, group = 'stamina', applies = 'live'},
     {key = 'stamina_balance_cap', default = 10000000, group = 'stamina', applies = 'live'},
     {key = 'stamina_initial_multiple', default = 0, group = 'stamina', applies = 'new'},
-    {key = 'ring_height', default = 32, group = 'ring', applies = 'new'},
-    {key = 'ring_concrete_height', default = 16, group = 'ring', applies = 'repaint'},
-    {key = 'ring_base_half_width', default = 32, group = 'ring', applies = 'repaint'},
-    {key = 'ring_per_level', default = 8, group = 'ring', applies = 'grow'},
-    {key = 'ring_level_bonus', default = 4, group = 'ring', applies = 'grow'},
+    {key = 'ring_width', default = 32, group = 'ring', applies = 'new'},
+    {key = 'ring_concrete_width', default = 16, group = 'ring', applies = 'repaint'},
+    {key = 'ring_base_half_length', default = 32, group = 'ring', applies = 'repaint'},
+    {key = 'ring_length_per_level', default = 8, group = 'ring', applies = 'grow'},
+    {key = 'ring_length_bonus', default = 4, group = 'ring', applies = 'grow'},
     {key = 'ring_pond_half', default = 2, group = 'ring', applies = 'repaint'},
     {key = 'ring_public_hours', default = 30, group = 'lifecycle', applies = 'live'},
     {key = 'ring_delete_multiple', default = 3, group = 'lifecycle', applies = 'live'},
@@ -106,7 +106,7 @@ M.TUNABLES = {
 -- example 是一条能直接粘进控制台的示例——表字段没法像标量那样直接赋一个数字。
 M.TUNABLE_TABLES = {
     {key = 'world_resource_boost', group = 'world', applies = 'reset',
-     example = '/sc storage.world_resource_boost.size = 6'},
+     example = '/sc storage.world_resource_boost.nauvis.size = 2'},
     {key = 'world_reset_minutes', group = 'world', example = '/sc storage.world_reset_minutes.nauvis = 30', applies = 'live'},
     -- 数组，不是按星球名索引：五颗星球共用同一套提前量，没有分开配的理由。
     {key = 'world_warn_minutes', group = 'world', applies = 'live',
@@ -125,18 +125,18 @@ M.TUNABLE_TABLES = {
 
 -- 戴森环的地图生成设置。
 --
--- 关键点一：height 是【引擎级硬边界】，|y| >= height/2 的区块根本不生成，零成本零代码。
---   32 是精确的 1 个区块行（-16..16），每一格都被用满。
---   纵向布局：中间 16 格可建带（tutorial-grid），上下各 8 格临空带，合计 32。
--- 关键点二：width = 0 表示【无限】，横向边界交给 ring.lua 手工涂 out-of-map 的墙。
+-- 关键点一：width 是【引擎级硬边界】，|x| >= width/2 的区块根本不生成，零成本零代码。
+--   32 是精确的 1 个区块列（-16..16），每一格都被用满。
+--   横向布局：中间 16 格可建带（tutorial-grid），左右各 8 格临空带，合计宽度 32。
+-- 关键点二：height = 0 表示【无限】，纵向边界交给 ring.lua 手工涂 out-of-map 的墙。
 --   引擎硬边界只能是矩形、而且在已存在的 surface 上能不能改大是未验证的，
---   所以横向的可增长边界必须自己涂。
+--   所以纵向的可增长长度必须自己涂。
 -- 关键点三：treat_missing_as_default = false 让所有未显式列出的 entity/tile/decorative
 --   都不生成，比逐个把 autoplace_controls 调成 0 更彻底，也不会漏掉 mod 新增的资源。
-function M.ring_map_gen(seed, ring_height)
+function M.ring_map_gen(seed, ring_width)
     return {
-        width = 0,
-        height = ring_height,
+        width = ring_width,
+        height = 0,
         seed = seed,
         water = 0,
         starting_area = 1,
@@ -204,8 +204,14 @@ function M.ensure_defaults()
         {normal = 1, uncommon = 3, rare = 5, epic = 7, legendary = 9}
 
     -- ══ 戴森环形状 ══
-    -- ring_per_level 减半后，ring_level_bonus 从 2 调到 4：0 级仍是 64 格宽，
-    -- 同时从第 1 级开始每级都能看见增长（总宽 +16 格）。
+    if storage.ring_width == nil then storage.ring_width = storage.ring_height or 32 end
+    if storage.ring_concrete_width == nil then storage.ring_concrete_width = storage.ring_concrete_height or 16 end
+    if storage.ring_base_half_length == nil then storage.ring_base_half_length = storage.ring_base_half_width or 32 end
+    if storage.ring_length_per_level == nil then storage.ring_length_per_level = storage.ring_per_level or 8 end
+    if storage.ring_length_bonus == nil then storage.ring_length_bonus = storage.ring_level_bonus or 4 end
+
+    -- ring_length_per_level 减半后，ring_length_bonus 从 2 调到 4：0 级仍是 64 格长，
+    -- 同时从第 1 级开始每级都能看见增长（总长 +16 格）。
 
     -- 语义砖名 → 实际砖原型名。geometry.lua 是纯函数、不读 storage，
     -- 所以它只返回语义值，由 ring.lua 查这张表映射成真实砖名。
@@ -217,7 +223,7 @@ function M.ensure_defaults()
     storage.ring_tiles = storage.ring_tiles or {
         start = 'tutorial-grid',   -- 初始那一圈：格子纹路当参考线
         grown = 'tutorial-grid',   -- 升级长出来的：暂时和初始区域用同一种砖
-        space = 'empty-space',     -- 上下临空带
+        space = 'empty-space',     -- 左右临空带
         void  = 'out-of-map',      -- 环外的墙
         -- 环心水池。用【浅水】而不是深水：浅水的碰撞掩码里没有 player 层，角色能直接趟过去，
         -- 不会把环心切成互不相通的两半；同时它带 water_tile 层，满足海洋泵
@@ -228,13 +234,15 @@ function M.ensure_defaults()
     -- ══ 戴森环离线生命周期 ══
     -- 两个阈值都是【每次扫描现读】的，绝不缓存成到期 tick，这样改配置能立即对全体生效。
     storage.ring_state = storage.ring_state or {}                  -- [玩家名] = 'private' / 'public'
-    storage.public_rings = storage.public_rings or {}              -- [surface名] = {id, name, original_owner, created, expires, half_width, ring_height...}
+    storage.public_rings = storage.public_rings or {}              -- [surface名] = {id, name, original_owner, created, expires, half_length/ring_width...}
     storage.public_ring_next_id = storage.public_ring_next_id or 1
+    storage.private_ring_by_player = storage.private_ring_by_player or {}
+    storage.private_ring_owner_by_surface = storage.private_ring_owner_by_surface or {}
     -- 新人的阈值按累计在线时长缩放（见 pockets.public_threshold / delete_threshold），
     -- 缩放结果不低于这个下限——避免 online_time = 0 的全新玩家一离线就立刻公共化。
 
     -- 一次性把上一版默认配置迁到新版环：旧 ring_* surface 会在 pockets.migrate_legacy_rings()
-    -- 里变成 100 小时公共遗迹；玩家自己的新环改用新 surface 前缀，按下面的新尺寸重建。
+    -- 里变成 100 小时公共遗迹；玩家自己的新环使用玩家名 surface，按下面的新朝向重建。
     if not storage.ring_layout_32_migrated then
         storage.legacy_ring_layout = storage.legacy_ring_layout or {
             ring_height = storage.ring_height or 64,
@@ -320,14 +328,29 @@ function M.ensure_defaults()
         end
         storage.world_reset_aquilo_420_migrated = true
     end
-    -- 公共世界的矿脉尺寸倍率。这些星球一两小时就清空一次，原版尺寸是按「一局几十小时」
-    -- 调的，直接用会让建设时间吃掉整轮的大半。数值是 MapGenSize：1 = 原版，2 = 大，
-    -- 4 = 非常大，6 = 界面上的最大档。见 worlds.boost_resources，按 category 覆盖全部矿种。
+    -- 公共世界的矿脉倍率。boost_resources 会在 reset_to_prototype 之后乘到原型值上，
+    -- 所以如果某颗星球自己的原型或其它脚本先带了随机扰动，这里会基于扰动后的值继续缩放。
     storage.world_resource_boost = storage.world_resource_boost or {
-        size = 6,        -- 矿脉铺开的面积，主要影响「一片矿能撑多久」
-        frequency = 2,   -- 矿脉出现的密度，影响「走多远能碰到下一片」
-        richness = 4,    -- 单格矿量，影响「同样面积能挖出多少」
+        default = {
+            richness = 1 / 16,      -- 所有星球单格矿量压低到原型的 1/16
+        },
+        nauvis = {
+            size = 2,               -- Nauvis 矿脉面积是原型的 2 倍
+            frequency = 2,          -- Nauvis 矿脉频率是原型的 2 倍
+            richness = 1 / 16,
+        },
     }
+    if not storage.world_resource_lean_migrated then
+        if storage.world_resource_boost.size
+                or storage.world_resource_boost.frequency
+                or storage.world_resource_boost.richness then
+            storage.world_resource_boost = {
+                default = {richness = 1 / 16},
+                nauvis = {size = 2, frequency = 2, richness = 1 / 16},
+            }
+        end
+        storage.world_resource_lean_migrated = true
+    end
 
     -- 相邻星球的首次排期错开这么多分钟，避免两个世界同时重置。
     storage.world_reset_at = storage.world_reset_at or {}
@@ -371,7 +394,7 @@ function M.ensure_defaults()
 
     -- ══ 分级披露 ══
     -- 累计在线满这么多小时，才在 GUI 上多看到那些"能优化但不影响上手"的详细数字
-    -- （比如戴森环精确宽度、经验贡献分项、其他玩家的戴森环列表）。见 scripts/util.lua 的 is_veteran。
+    -- （比如戴森环精确长度、经验贡献分项、其他玩家的戴森环列表）。见 scripts/util.lua 的 is_veteran。
 
     -- ══ 调试 ══
 end

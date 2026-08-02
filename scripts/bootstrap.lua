@@ -32,7 +32,7 @@ local M = {}
 -- 【遍历 prototypes.space_location，而不是只遍历 PUBLIC_PLANETS】：
 -- 星图上的地点不止五个公共星球，还有 solar-system-edge 和 shattered-planet。
 -- 只解锁五个星球的话，普罗米修斯瓶（唯一来源是破碎星球）永远拿不到，
--- 而普罗米修斯经验是决定环宽的 12 项之一 —— 等于有一项经验被永久锁死，
+    -- 而普罗米修斯经验是决定环长的 12 项之一 —— 等于有一项经验被永久锁死，
 -- 玩家怎么攒都差这一项。空间位置全解锁才和「12 种瓶子都要集齐」这个核心设定自洽。
 function M.unlock_all_space_locations()
     local force = game.forces.player

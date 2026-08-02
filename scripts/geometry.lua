@@ -50,20 +50,23 @@ function M.ring_level(exp_table)
     return sum
 end
 
--- 半宽（tile）。环以原点为中心向两侧对称生长，每升一级两侧各外推 per_level。
+-- 半长（tile）。新戴森环以原点为中心向上下两端对称生长，每升一级两端各外推 per_level。
 --
--- level_bonus 是【白送的级数】：半宽 = per_level × (等级 + level_bonus)，
--- 配置 (32, 8, 4) 即【宽度 = 16 × (等级和 + 4)】。
--- 取 4 让等级 0（一点经验都没攒）时宽度正好是下限 64，起步宽度和"还没开始"这个状态对上。
+-- level_bonus 是【附赠的级数】：半长 = per_level × (等级 + level_bonus)，
+-- 配置 (32, 8, 4) 即【长度 = 16 × (等级和 + 4)】。
+-- 取 4 让等级 0（一点经验都没攒）时长度正好是下限 64，起始长度和"还没开始"这个状态对上。
 --
 -- 【曾经写成减法（等级 − 10），那是个真实的设计缺陷】：
 -- 仍然夹下限，但它只是脏数据的兜底（等级 >= 0 时永远不会触发）：
 -- 半宽为负会让 tile_at 把整条环判成 void，玩家掉进一个一格地板都没有的世界。
-function M.half_width(level, base_half_width, per_level, level_bonus)
+function M.half_length(level, base_half_length, per_level, level_bonus)
     local grown = per_level * (level + (level_bonus or 0))
-    if grown < base_half_width then return base_half_width end
+    if grown < base_half_length then return base_half_length end
     return grown
 end
+
+-- 兼容旧测试/旧调用点。新代码请用 half_length。
+M.half_width = M.half_length
 
 -- 给定 tile 坐标，返回该铺哪种【语义】砖，而不是具体的砖原型名。
 --
@@ -72,15 +75,21 @@ end
 -- 语义值只有四种：
 --   'start'  初始那一圈（L=0 时就有的地皮）
 --   'grown'  升级长出来的地皮（攒经验换来的，地面本身就是成长记录）
---   'space'  上下的临空带
+--   'space'  两侧的临空带
 --   'void'   环外的墙
 -- 真正的砖名映射交给 ring.lua 查 storage.ring_tiles。
 --
 -- 坐标约定：tile 坐标 x 占据 [x, x+1)，所以有效横向范围是 x ∈ [-half_width, half_width)，
 -- 纵向同理。左闭右开，和 Factorio 的 tile 语义一致。
---
--- 判断顺序有意义：横向的墙优先于纵向的分带。环外就是环外，不管 y 落在哪一段。
-function M.tile_at(x, y, half_width, ring_height, concrete_height, base_half_width, pond_half)
+
+local function pond_at(x, y, pond_half)
+    return pond_half and pond_half > 0
+        and x >= -pond_half and x < pond_half
+        and y >= -pond_half and y < pond_half
+end
+
+-- 旧横向环：长度沿 x 轴增长，y 轴是固定高度。只给迁移后的公共遗迹使用。
+function M.tile_at_horizontal(x, y, half_width, ring_height, concrete_height, base_half_width, pond_half)
     if x < -half_width or x >= half_width then
         return 'void'
     end
@@ -96,9 +105,7 @@ function M.tile_at(x, y, half_width, ring_height, concrete_height, base_half_wid
     -- 用浅水（映射见 storage.ring_tiles.water）而不是深水：浅水的碰撞掩码里没有 player 层，
     -- 角色能直接趟过去，不会把环心切成互不相通的两半；同时它有 water_tile 层，
     -- 满足海洋泵 tile_buildability_rules 里「泵前方两格必须是水」那一条。
-    if pond_half and pond_half > 0
-            and x >= -pond_half and x < pond_half
-            and y >= -pond_half and y < pond_half then
+    if pond_at(x, y, pond_half) then
         return 'water'
     end
 
@@ -116,8 +123,40 @@ function M.tile_at(x, y, half_width, ring_height, concrete_height, base_half_wid
         return 'space'
     end
 
-    -- 引擎的 height 硬边界本来就不会生成这里，走到这一步说明配置不一致，兜底成墙。
     return 'void'
+end
+
+-- 新竖向环：宽度固定在 x 轴，长度沿 y 轴上下增长。地图的 height 方向就是戴森环长度。
+function M.tile_at_vertical(x, y, half_length, ring_width, concrete_width, base_half_length, pond_half)
+    if y < -half_length or y >= half_length then
+        return 'void'
+    end
+
+    if pond_at(x, y, pond_half) then
+        return 'water'
+    end
+
+    local concrete_half = concrete_width / 2
+    if x >= -concrete_half and x < concrete_half then
+        if y >= -base_half_length and y < base_half_length then
+            return 'start'
+        end
+        return 'grown'
+    end
+
+    local width_half = ring_width / 2
+    if x >= -width_half and x < width_half then
+        return 'space'
+    end
+
+    return 'void'
+end
+
+function M.tile_at(x, y, half_length, ring_width, concrete_width, base_half_length, pond_half, orientation)
+    if orientation == 'horizontal' then
+        return M.tile_at_horizontal(x, y, half_length, ring_width, concrete_width, base_half_length, pond_half)
+    end
+    return M.tile_at_vertical(x, y, half_length, ring_width, concrete_width, base_half_length, pond_half)
 end
 
 return M

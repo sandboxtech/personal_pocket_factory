@@ -112,7 +112,7 @@ end)
 -- /ring-delete-all [confirm]
 --
 -- 删掉全服所有玩家的戴森环。经验一点不动，没的只有建筑和关联库存 ——
--- 每个人下次点回环按钮时，环按他的经验立刻长回原来的宽度。用于赛季重置。
+-- 每个人下次点回环按钮时，环按他的经验立刻长回原来的长度。用于赛季重置。
 --
 -- 【不带参数只做预览，不删任何东西】。Factorio 控制台没有撤销，而这条指令一次抹掉
 -- 全服所有人的工厂，破坏面比 /ring-delete 大一个数量级，值得多按一次回车。
@@ -254,7 +254,7 @@ commands.add_command('pw-import', {'pw.cmd-import-help'}, function(command)
 
     local n = expio.apply(result)
 
-    -- 经验变了，环宽就得跟着变。只对在线玩家立刻重涂：离线玩家的环下次进去时
+    -- 经验变了，环长就得跟着变。只对在线玩家立刻重涂：离线玩家的环下次进去时
     -- pockets.ensure 会按新等级把地涂好，现在去动一个没人在的表面没有意义。
     -- HUD 同理，顺手刷一次，免得数字停在导入之前的旧值上。
     for _, entry in ipairs(result.entries) do

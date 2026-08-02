@@ -126,7 +126,7 @@ end
 -- 三层判断缺一不可：类型必须是数字；NaN 要单独挡（NaN ~= NaN 是唯一可靠的判据，
 -- 它能通过 >= 0 之外的所有比较）；负数直接拒绝，经验和体力都没有负值的语义。
 -- 脏数据宁可整条跳过也不能写进 storage —— 一个 NaN 经验会让 ring_level 算出 NaN，
--- 进而让半宽变成 NaN，涂砖时才炸，而那时已经完全看不出根因在导入这一步。
+-- 进而让半长变成 NaN，涂砖时才炸，而那时已经完全看不出根因在导入这一步。
 local function clean_number(value)
     if type(value) ~= 'number' then return nil end
     if value ~= value then return nil end            -- NaN

@@ -7,7 +7,7 @@
 #   check_globals    读写了未定义的全局。luac -p 不管这个（读不存在的全局在 Lua 里合法，值是 nil），
 #                    要等运行到那一行才 "attempt to index a nil value"。
 #   check_api_args   引擎调用的位置参数写反。签名以 runtime-api.json 为准。
-#   test_geometry    环等级/半宽/砖块语义的纯函数单测。
+#   test_geometry    环等级/半长/砖块语义的纯函数单测。
 #   test_expio       导入数据的校验：脏数据（NaN/负数/拼错的键）必须在写进 storage 之前被挡住。
 #   check_locale     两语言键集、占位符、缺键死键、以及每个调用点的实参个数。
 set -uo pipefail

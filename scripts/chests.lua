@@ -112,7 +112,7 @@ end
 
 -- 把某人系统箱阵的 link_id 整体切换（公共化 / 回归时用）。
 function M.set_array_link(player, link_id)
-    local surface = game.surfaces[ring.surface_name_for(player.index)]
+    local surface = game.surfaces[ring.surface_name_for(player)]
     if not (surface and surface.valid) then return 0 end
     local changed = 0
     -- 不存箱子的 LuaEntity 引用：surface 重建后引用会失效，每次现查最可靠。

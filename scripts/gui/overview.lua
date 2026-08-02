@@ -10,7 +10,7 @@
 --
 -- ══ 分级披露 ══
 -- 全员看得到：玩家名、在线/离线、有没有船、能不能进、前往按钮。
--- 仅老玩家（util.is_veteran）看得到：等级、环宽、累计在线时长、离线小时数、飞船剩余寿命。
+-- 仅老玩家（util.is_veteran）看得到：等级、环长、累计在线时长、离线小时数、飞船剩余寿命。
 -- 新人需要的是「服务器上有人、我能去串门」这个事实，那一堆数字对他没有可操作性。
 local constants = require('scripts.constants')
 local pockets = require('scripts.pockets')
@@ -171,13 +171,13 @@ local function render_row(grid, viewer, row)
         -- 和阈值缩放读同一个来源，否则界面显示的时长会和实际保护时长对不上。
         local played = math.floor(util.played_hours(player))
         grid.add{type = 'label', caption = {'pw.overview-ring-detail',
-            ring_entry.level, ring_entry.half_width * 2, played}}
+            ring_entry.level, ring_entry.half_length * 2, played}}
     else
         grid.add{type = 'empty-widget'}
     end
 
     -- ④ 飞船。剩余寿命是个需要规划的数字（要不要现在上去搬东西），
-    -- 和环宽一样归入「老玩家才看」。
+    -- 和环长一样归入「老玩家才看」。
     if ship then
         grid.add{type = 'label', caption = veteran
             and {'pw.overview-ship-detail', ship.platform.name, ship.left_hours}
