@@ -59,7 +59,7 @@ function M.show(player)
         local detail = inner.add{type = 'label', caption = {'pw.help-body-detail',
             minutes[planets[1]] or 0, minutes[planets[2]] or 0, minutes[planets[3]] or 0,
             minutes[planets[4]] or 0, minutes[planets[5]] or 0,
-            storage.tech_loss_k_max or 2,
+            storage.tech_loss_k_max or 0.5,
             public_hours,
             -- 删除阈值不再是独立参数，是公共化阈值乘出来的（见 pockets.delete_threshold）。
             -- 这里跟着乘，而不是再读一个 storage 字段 —— 少一个能和实际规则脱节的地方。

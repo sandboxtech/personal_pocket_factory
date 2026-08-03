@@ -94,7 +94,7 @@ M.TUNABLES = {
     {key = 'cycle_phase_minutes', default = 5, group = 'cycle', applies = 'new'},
     {key = 'cycle_base_offset_minutes', default = 2, group = 'cycle', applies = 'new'},
     {key = 'hud_refresh_ticks', default = 3600, group = 'cycle', applies = 'live'},
-    {key = 'tech_loss_k_max', default = 2, group = 'tech', applies = 'live'},
+    {key = 'tech_loss_k_max', default = 0.5, group = 'tech', applies = 'live'},
     {key = 'starter_equipment_hours', default = 3, group = 'misc', applies = 'live'},
     {key = 'detail_hours', default = 6, group = 'misc', applies = 'live'},
     {key = 'block_blueprint_library', default = false, group = 'misc', applies = 'dead'},
@@ -181,6 +181,18 @@ function M.ensure_defaults()
     -- 而被默认值覆盖，于是 false 永远存不住）。老写法为此给每个布尔项单独写了 if 分支。
     for _, item in ipairs(M.TUNABLES) do
         if storage[item.key] == nil then storage[item.key] = item.default end
+    end
+
+    -- 本次平衡调整：只把旧默认值 2 降到 0.5，管理员已经改成其他数值则保留。
+    if not storage.tech_loss_half_migrated then
+        if storage.tech_loss_k_max == 2 then storage.tech_loss_k_max = 0.5 end
+        storage.tech_loss_half_migrated = true
+    end
+
+    -- 科技价格是 Factorio 的全局难度设置，不属于 storage。每次补默认值时顺手校准，
+    -- 这样新存档、旧存档以及 game.reload_script() 热更新都会生效。
+    if game.difficulty_settings.technology_price_multiplier ~= 2 then
+        game.difficulty_settings.technology_price_multiplier = 2
     end
 
     -- 【注意】ensure_defaults 只补【缺失】的字段，绝不覆盖已有值 —— 这是它能被
@@ -364,22 +376,12 @@ function M.ensure_defaults()
     storage.world_reset_at = storage.world_reset_at or {}
     storage.world_run = storage.world_run or {}
     -- 开放阶段持续各星球自己的配置周期；切换为关闭时重置一次，关闭两小时后
-    -- 再重置并开放。状态独立于地图种子轮次，避免旧存档因轮次奇偶数突然切换。
+    -- 再重置并开放。
     storage.world_travel_open = storage.world_travel_open or {}
-    if not storage.world_travel_two_hours_migrated then
-        for _, name in ipairs(M.PUBLIC_PLANETS) do
-            if name ~= 'nauvis' then
-                local closed_until = storage.world_travel_closed_until
-                    and storage.world_travel_closed_until[name]
-                if closed_until and closed_until > game.tick then
-                    storage.world_travel_open[name] = false
-                    storage.world_reset_at[name] = closed_until
-                elseif storage.world_travel_open[name] == nil then
-                    storage.world_travel_open[name] = true
-                end
-            end
+    for _, name in ipairs(M.PUBLIC_PLANETS) do
+        if name ~= 'nauvis' and storage.world_travel_open[name] == nil then
+            storage.world_travel_open[name] = true
         end
-        storage.world_travel_two_hours_migrated = true
     end
     -- 重置前多久提醒还站在星球上的人（分钟）。
     storage.world_warn_minutes = storage.world_warn_minutes or {5, 1}

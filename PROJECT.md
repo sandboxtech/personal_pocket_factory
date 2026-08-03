@@ -73,7 +73,7 @@ v1 的口袋世界宽高都用 `MapGenSettings.width/height` 这种引擎级硬�
 ### 五、科技丢失概率挂瓶子种数
 
 每一轮漏水（`worlds.tick_tech_loss`，独立周期任务，不挂在星球重置上）先掷一个系数
-`x ~ U(0, storage.tech_loss_k_max)`（默认上限 2），然后每个已研究科技以 `P = x × n / 100`
+`x ~ U(0, storage.tech_loss_k_max)`（默认上限 0.5），然后每个已研究科技以 `P = x × n / 100`
 的概率被撤销，`n` 是该科技配方里不重复的科技瓶种数。
 
 **`x` 一轮只掷一次，整张科技表共用**。挪进循环里逐科技各掷各的，等于几百次独立同分布判定，
@@ -189,7 +189,7 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | `starter_items` | 新玩家起手物资，整张表替换；未知物品名跳过 | 铁板 500 / 铜板 200 / 石 100 / 木 100 |
 | `starter_equipment` / `starter_equipment_hours` | 起始装备清单（带装备栏的装甲排在前面）/ 复活补发的冷却小时数 | 模块装甲 + 机器人指令模块 + 6 太阳能板 + 10 建造机器人 / 3 |
 | `cycle_minutes` / `cycle_phase_minutes` / `cycle_base_offset_minutes` | 相位调度器：大类任务周期 / 相位间隔 / 与星球重置错开的基础偏移 | 60 / 5 / 2 |
-| `tech_loss_k_max` | 漏水系数上限，每轮取 `x ~ U(0, 上限)`，`P = x × 瓶子种数 / 100` | 2 |
+| `tech_loss_k_max` | 失传系数上限，每轮取 `x ~ U(0, 上限)`，`P = x × 瓶子种数 / 100` | 0.5 |
 | `block_blueprint_library` | 权限组是否禁蓝图库 | false（默认不禁） |
 | `detail_hours` | 分级披露门槛：累计在线满多少小时算「老玩家」 | 6 |
 | `debug` | 管理员调试播报 | false |

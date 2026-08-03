@@ -413,42 +413,6 @@ function M.tick_warn()
     end
 end
 
--- 刚落到某颗星球上的人，如果这颗星球已经进了预警窗口，单独告诉他还剩多久。
---
--- 【这一条不能靠上面那个周期任务覆盖】：预警是"到点广播一次"，发完就结束了。
--- 一个在第 4 分钟才降落的人永远收不到那条 5 分钟预警，而他恰恰是最需要知道的人 ——
--- 他刚开始建，最容易一头扎进去，然后眼睁睁看着一切在几分钟后消失。
---
--- 分钟数【向上取整现算】，不是复用预警档位：这里回答的是"我还有多久"，
--- 要的是真实剩余量，说"还有 5 分钟"而实际只剩 40 秒会把人坑得更惨。
-local function on_player_changed_surface(event)
-    local player = game.players[event.player_index]
-    if not (player and player.valid and player.connected) then return end
-    -- 认 physical_surface 而不是事件里的 surface_index：进遥控视角也会触发这个事件，
-    -- 而那时人还在自己环里，什么都不会失去，不该收到这条。
-    local surface = player.physical_surface
-    if not (surface and surface.valid) then return end
-
-    local at = (storage.world_reset_at or {})[surface.name]
-    if not at then return end          -- 不是公共星球，或者还没排期
-
-    local left = at - game.tick
-    if left <= 0 then return end
-
-    -- 窗口取配置里最大的那一档：管理员把预警改成 {10,5,1} 之后，
-    -- 落地提示的窗口跟着变成 10 分钟，不需要另外再配一个数。
-    local widest = 0
-    for _, minutes in ipairs(warn_minutes()) do
-        if minutes > widest then widest = minutes end
-    end
-    if left > widest * constants.min_to_tick then return end
-
-    notify(player, 'pw.world-reset-arrival', surface.name,
-        math.max(1, math.ceil(left / constants.min_to_tick)))
-end
-events.on(defines.events.on_player_changed_surface,
-    events.safe('worlds_arrival_warn', on_player_changed_surface))
-
 -------------------------------------------------------------------------------
 -- 科技丢失
 --
@@ -504,10 +468,10 @@ end
 -- x 接近上限的那轮成片地掉。总量的期望没变（E[x] = 上限 / 2 = 1，
 -- 正好是旧版那个固定系数），变的只是节奏 —— 从持续渗水变成偶尔一场暴雨。
 --
--- 上限写成 storage.tech_loss_k_max 而不是字面量 2：这个数字是漏水速度的总闸门，
+-- 上限写成 storage.tech_loss_k_max 而不是固定数值：这个数字是失传速度的总闸门，
 -- 调它等于同时调期望值和波动幅度，是最可能需要现场热改的参数。
 function M.roll_coefficient()
-    return math.random() * (storage.tech_loss_k_max or 2)
+    return math.random() * (storage.tech_loss_k_max or 0.5)
 end
 
 -- 当前正在研究的科技，其【直接前置】在本轮科技漏水中免疫。
@@ -550,7 +514,7 @@ function M.loss_chance(tech, k, protected)
     -- 而且清零几十级的采矿产能在体感上是灭顶之灾，不是持续压力。
     if not (tech.researched or M.can_downgrade(tech)) then return 0 end
 
-    k = k or (storage.tech_loss_k_max or 2) / 2
+    k = k or (storage.tech_loss_k_max or 0.5) / 2
     return k * M.pack_count(tech) / 100
 end
 
