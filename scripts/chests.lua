@@ -258,6 +258,35 @@ function M.register_dropoff(player_index, chest)
     return #list, limit
 end
 
+-- 永久移除离线玩家前，清空他名下的共享关联库存并销毁所有仍存在的投递口。
+-- 离线角色背包不可访问，但关联箱实体和它们共享的库存仍可由脚本访问。
+function M.clear_player_dropoffs(player_index)
+    storage.dropoffs = storage.dropoffs or {}
+    local list = storage.dropoffs[player_index] or {}
+    local inventory_cleared = false
+    local destroyed = 0
+
+    for _, rec in ipairs(list) do
+        local surface = rec.surface and game.surfaces[rec.surface]
+        local chest = surface and surface.valid and surface.find_entity(LINKED, {rec.x, rec.y})
+        -- 坐标登记可能因世界重置留下陈旧项；同一位置后来若被别人重建，不能误删。
+        if chest and chest.valid and chest.destructible and chest.link_id == player_index then
+            if not inventory_cleared then
+                local inventory = chest.get_inventory(defines.inventory.chest)
+                if inventory then inventory.clear() end
+                inventory_cleared = true
+            end
+            chest.destroy()
+            destroyed = destroyed + 1
+        end
+    end
+
+    storage.dropoffs[player_index] = nil
+    storage.dropoff_notice_at = storage.dropoff_notice_at or {}
+    storage.dropoff_notice_at[player_index] = nil
+    return destroyed
+end
+
 -- 机器人代建时给主人一句提示。
 --
 -- 【手动放不用提示，机器人代建必须提示】：手动放的时候玩家就站在那儿，箱子变成什么样

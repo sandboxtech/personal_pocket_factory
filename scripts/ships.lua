@@ -70,10 +70,16 @@ function M.of(player)
             local platform = platform_of(index)
             if platform then
                 sync_deletion_state(record, platform)
-                ensure_life_started(record, platform)
-                return platform, record
+                -- destroy() 是安排删除，不保证调用后对象立刻失效。待删除的船不能继续
+                -- 出现在“我的飞船”里，否则拆除按钮会再次进入确认态，看起来像没有删除。
+                if not (record.scuttled or platform.scheduled_for_deletion) then
+                    ensure_life_started(record, platform)
+                    return platform, record
+                end
             end
-            records()[index] = nil   -- 在 pairs 里把已存在的键赋 nil 是 Lua 明确允许的
+            if not platform then
+                records()[index] = nil   -- 在 pairs 里把已存在的键赋 nil 是 Lua 明确允许的
+            end
         end
     end
     return nil
@@ -270,7 +276,8 @@ function M.scuttle(player)
     if not platform then return false end
     if record.scuttled or platform.scheduled_for_deletion then return true end
     record.scuttled = game.tick
-    platform.destroy()
+    -- 明确要求 0 tick 后删除。无参数版本只是采用引擎默认倒计时，期间平台仍有效。
+    platform.destroy(0)
     game.print({'pw.ship-scuttled', player.name})
     return true
 end
@@ -286,7 +293,7 @@ function M.destroy_owned(player)
             if platform then
                 if not (record.scuttled or platform.scheduled_for_deletion) then
                     record.scuttled = game.tick
-                    platform.destroy()
+                    platform.destroy(0)
                 end
             else
                 records()[index] = nil
@@ -349,7 +356,7 @@ function M.tick_lifecycle()
                 and not (record.scuttled or platform.scheduled_for_deletion) then
             local label = record.owner or platform.name
             record.scuttled = game.tick
-            platform.destroy()
+            platform.destroy(0)
             destroyed = destroyed + 1
             game.print({'pw.ship-expired', label})
         end

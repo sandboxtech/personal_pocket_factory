@@ -97,8 +97,6 @@ script.on_nth_tick(3600, events.safe('nth_tick', function()
     -- `or {}` 兜出空表，新玩家一件起手物资都拿不到）。
     -- 只补【缺失】的字段，不改管理员设过的值，也不更新老字段的旧值。
     constants.ensure_defaults()
-    pockets.migrate_legacy_rings()
-
     -- 大类周期任务：逐个检查是否到了各自的下次触发时刻（存 tick，不取模）。
     for _, task in ipairs(CYCLE_TASKS) do
         ensure_scheduled(task)

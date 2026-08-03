@@ -21,7 +21,7 @@ local WIDTH = 900
 -- 颜色是给「扫一眼找出哪些能立刻试」用的，文字说明在 tooltip 里。
 local APPLIES_COLOR = {
     live = 'green', grow = 'green',
-    repaint = 'yellow', reset = 'yellow', new = 'yellow',
+    repaint = 'yellow', reset = 'yellow', reload = 'yellow', new = 'yellow',
     dead = 'gray',
 }
 

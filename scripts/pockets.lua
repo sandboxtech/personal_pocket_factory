@@ -13,7 +13,6 @@ local util = require('scripts.util')
 local M = {}
 
 local PLAYER_CLEANUP_IDLE_TICKS = 90 * constants.hour_to_tick
-local PUBLIC_RING_LIFE_TICKS = 100 * constants.hour_to_tick
 
 function M.surface_name(player)
     return ring.surface_name_for(player)
@@ -55,14 +54,6 @@ local function sync_visibility(surface, player_name)
     end
     if force.get_surface_hidden(surface) ~= hidden then
         log('[pw] set_surface_hidden 未生效：' .. surface.name)
-    end
-end
-
-local function reveal_surface(surface)
-    local force = game.forces.player
-    local ok, err = pcall(function() force.set_surface_hidden(surface, false) end)
-    if not ok then
-        log('[pw] set_surface_hidden 调用失败（公共戴森环仍可通过 UI 进入）：' .. tostring(err))
     end
 end
 
@@ -109,107 +100,6 @@ local function create_surface(player)
     end
 
     return surface
-end
-
-local function forget_dropoffs_on(surface_name)
-    storage.dropoffs = storage.dropoffs or {}
-    for _, list in pairs(storage.dropoffs) do
-        for i = #list, 1, -1 do
-            if list[i].surface == surface_name then table.remove(list, i) end
-        end
-    end
-end
-
-local function next_public_ring_name()
-    storage.public_ring_next_id = storage.public_ring_next_id or 1
-    storage.public_rings = storage.public_rings or {}
-    while true do
-        local id = storage.public_ring_next_id
-        local name = ring.public_ring_name_for(id)
-        storage.public_ring_next_id = id + 1
-        if not game.surfaces[name] and not storage.public_rings[name] then
-            return name, id
-        end
-    end
-end
-
-local function make_public_record(surface, old_name, new_name, id)
-    local owner_index = ring.owner_index_of_name(old_name)
-    local owner = owner_index and game.players[owner_index]
-    local owner_name = owner and owner.name or nil
-    local layout = storage.legacy_ring_layout or {}
-    local half_length = (owner_name and storage.ring_applied_half and storage.ring_applied_half[owner_name])
-        or (owner_name and storage.ring_applied_half_length and storage.ring_applied_half_length[owner_name])
-        or (owner_name and ring.half_length_of(owner_name))
-        or (storage.ring_base_half_length or storage.ring_base_half_width or 32)
-
-    storage.public_rings[new_name] = {
-        id = id,
-        name = new_name,
-        original_owner = owner_name,
-        original_owner_index = owner_index,
-        created = game.tick,
-        expires = game.tick + PUBLIC_RING_LIFE_TICKS,
-        orientation = 'horizontal',
-        half_length = half_length,
-        half_width = half_length,
-        ring_height = layout.ring_height or 64,
-        concrete_height = layout.concrete_height or 32,
-        base_half_width = layout.base_half_width or 32,
-        pond_half = layout.pond_half or 2,
-    }
-
-    surface.localised_name = {'pw.label-public-ring-of', owner_name or tostring(id)}
-    reveal_surface(surface)
-    for _, chest in pairs(surface.find_entities_filtered{name = 'linked-chest'}) do
-        chest.link_id = constants.PUBLIC_LINK_ID
-    end
-
-    if owner_name then
-        storage.ring_state[owner_name] = nil
-        storage.ring_applied_half[owner_name] = nil
-        if storage.ring_applied_half_length then storage.ring_applied_half_length[owner_name] = nil end
-    end
-end
-
--- 把旧版 ring_<玩家index> 迁移成 100 小时公共遗迹；玩家自己的新环优先直接使用玩家名。
--- 迁移是幂等的：改过名的 public_N 不再满足 legacy 判据，重复调用只会补齐记录。
-function M.migrate_legacy_rings()
-    storage.public_rings = storage.public_rings or {}
-    storage.ring_state = storage.ring_state or {}
-    storage.ring_applied_half = storage.ring_applied_half or {}
-    storage.ring_applied_half_length = storage.ring_applied_half_length or {}
-
-    local legacy_surfaces = {}
-    local public_surfaces = {}
-    for _, surface in pairs(game.surfaces) do
-        if surface.valid and ring.is_legacy_ring_name(surface.name) then
-            legacy_surfaces[#legacy_surfaces + 1] = surface
-        elseif surface.valid and ring.is_public_ring_name(surface.name) and not storage.public_rings[surface.name] then
-            public_surfaces[#public_surfaces + 1] = surface
-        end
-    end
-
-    for _, surface in ipairs(legacy_surfaces) do
-        if surface.valid and ring.is_legacy_ring_name(surface.name) then
-            local old_name = surface.name
-            local new_name, id = next_public_ring_name()
-            local ok, err = pcall(function() surface.name = new_name end)
-            if ok then
-                forget_dropoffs_on(old_name)
-                make_public_record(surface, old_name, new_name, id)
-            else
-                log('[pw] 旧戴森环迁移失败 ' .. old_name .. ' -> ' .. new_name .. '：' .. tostring(err))
-            end
-        end
-    end
-
-    for _, surface in ipairs(public_surfaces) do
-        if surface.valid and ring.is_public_ring_name(surface.name) and not storage.public_rings[surface.name] then
-            local id = ring.public_ring_id_of_name(surface.name) or 0
-            make_public_record(surface, surface.name, surface.name, id)
-        end
-    end
 end
 
 -- 惰性创建 + 自愈。已存在的环不重复建，但下面那几步【每次都跑一遍】。
@@ -298,6 +188,18 @@ function M.enter(player)
     return true
 end
 
+-- 强制撤离时只移动玩家的真实角色实体。遥控视角下 player.surface 是观察位置，
+-- player.character 也可能为 nil；body_character 会从 associated characters 找回本体。
+function M.enter_body(player)
+    local surface = M.ensure(player)
+    if not (surface and surface.valid) then return false end
+    local character = util.body_character(player)
+    if not character then return M.enter(player) end
+    local pos = surface.find_non_colliding_position('character', constants.RING_SPAWN, 32, 1)
+        or constants.RING_SPAWN
+    return character.teleport(pos, surface)
+end
+
 -------------------------------------------------------------------------------
 -- 离线生命周期：离线满一段时间变公共，再满 3 倍时长后删除。
 -- 时长按累计在线时长缩放，下限 3 小时（→ 9 小时删），上限 30 小时（→ 90 小时删）。
@@ -319,7 +221,7 @@ local function evacuate(surface, except_name)
     for _, p in pairs(game.connected_players) do
         if p.surface == surface and p.name ~= except_name then
             p.print({'pw.ring-evacuated'})
-            M.enter(p)
+            M.enter_body(p)
         end
     end
 end
@@ -384,6 +286,7 @@ function M.tick_player_cleanup()
             local idle = game.tick - (player.last_online or game.tick)
             local due = record.due or ((player.last_online or game.tick) + PLAYER_CLEANUP_IDLE_TICKS)
             if idle >= PLAYER_CLEANUP_IDLE_TICKS and game.tick >= due then
+                chests.clear_player_dropoffs(player.index)
                 if remove_offline_player(player) then
                     cleanup_records()[key] = nil
                     cleaned = cleaned + 1

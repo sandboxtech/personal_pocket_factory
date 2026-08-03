@@ -224,9 +224,9 @@ end
 -- 把还留在某世界上的玩家撤回各自的口袋世界。重置前调用，避免把人清进虚空。
 local function evacuate(surface)
     for _, player in pairs(game.connected_players) do
-        if player.surface == surface then
+        if player.physical_surface == surface then
             player.print({'pw.world-evacuated', util.surface_label(surface.name)})
-            pockets.enter(player)
+            pockets.enter_body(player)
         end
     end
 end

@@ -57,6 +57,7 @@ M.RING_SPAWN = {0, 0}
 --   grow    立刻重算，但环只会变长不会缩短（缩小要等下次重建）
 --   repaint 只影响之后新涂的砖，已经铺好的地不动
 --   reset   下次那个世界重置时才套用
+--   reload  重新加载脚本或执行 /pw-repair 后生效
 --   new     只对之后新建的东西生效，已存在的不变
 --   dead    目前完全不起作用（留着是为了不假装它能用）
 M.TUNABLE_GROUPS = {'stamina', 'ring', 'lifecycle', 'world', 'ship', 'cycle', 'tech', 'misc'}
@@ -87,7 +88,7 @@ M.TUNABLES = {
     {key = 'ship_width_bonus', default = 4, group = 'ship', applies = 'new'},
     {key = 'ship_height', default = 512, group = 'ship', applies = 'new'},
     {key = 'ship_home_planet', default = 'nauvis', group = 'ship', applies = 'new'},
-    {key = 'ship_lock_native_creation', default = true, group = 'ship', applies = 'live'},
+    {key = 'ship_lock_native_creation', default = true, group = 'ship', applies = 'reload'},
     {key = 'cycle_minutes', default = 60, group = 'cycle', applies = 'live'},
     {key = 'auto_convert_minutes', default = 1, group = 'cycle', applies = 'live'},
     {key = 'auto_convert_offline_minutes', default = 10, group = 'cycle', applies = 'live'},
@@ -253,28 +254,10 @@ function M.ensure_defaults()
     -- 两个阈值都是【每次扫描现读】的，绝不缓存成到期 tick，这样改配置能立即对全体生效。
     storage.ring_state = storage.ring_state or {}                  -- [玩家名] = 'private' / 'public'
     storage.public_rings = storage.public_rings or {}              -- [surface名] = {id, name, original_owner, created, expires, half_length/ring_width...}
-    storage.public_ring_next_id = storage.public_ring_next_id or 1
     storage.private_ring_by_player = storage.private_ring_by_player or {}
     storage.private_ring_owner_by_surface = storage.private_ring_owner_by_surface or {}
     -- 新人的阈值按累计在线时长缩放（见 pockets.public_threshold / delete_threshold），
     -- 缩放结果不低于这个下限——避免 online_time = 0 的全新玩家一离线就立刻公共化。
-
-    -- 一次性把上一版默认配置迁到新版环：旧 ring_* surface 会在 pockets.migrate_legacy_rings()
-    -- 里变成 100 小时公共遗迹；玩家自己的新环使用玩家名 surface，按下面的新朝向重建。
-    if not storage.ring_layout_32_migrated then
-        storage.legacy_ring_layout = storage.legacy_ring_layout or {
-            ring_height = storage.ring_height or 64,
-            concrete_height = storage.ring_concrete_height or 32,
-            base_half_width = storage.ring_base_half_width or 32,
-            pond_half = storage.ring_pond_half or 2,
-        }
-        if storage.ring_height == 64 then storage.ring_height = 32 end
-        if storage.ring_concrete_height == 32 then storage.ring_concrete_height = 16 end
-        if storage.ring_per_level == 16 then storage.ring_per_level = 8 end
-        if storage.ring_level_bonus == 2 then storage.ring_level_bonus = 4 end
-        if storage.dropoff_limit == 12 then storage.dropoff_limit = 8 end
-        storage.ring_layout_32_migrated = true
-    end
 
     -- ══ 新玩家的起手物资 ══
     -- 戴森环里一颗矿都没有，不给起手物资，新人连第一台熔炉都造不出来，

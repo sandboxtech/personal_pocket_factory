@@ -70,8 +70,6 @@ function M.run(respread)
 
     worlds.schedule_all(respread and true or false)
 
-    pockets.migrate_legacy_rings()
-
     -- 把已存在的戴森环全部重新 ensure 一遍：补齐半成品环缺失的收货箱阵、
     -- 重设 localised_name（列表里显示玩家名）、按公私状态对齐可见性。
     -- 【只碰已存在的环，绝不新建】——对已被回收的离线玩家调 ensure 会把环凭空造回来。
