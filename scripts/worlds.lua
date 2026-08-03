@@ -195,15 +195,12 @@ function M.time_left(planet_name)
     return (storage.world_reset_at[planet_name] or game.tick) - game.tick
 end
 
--- 星球传送窗口：Nauvis 是母星，永远开放；其余星球只在本轮前半段允许直传。
--- 这里故意绑定到重置排期：重置后一段时间是采集窗口，临近清空的一半时间不再让玩家直接进场。
+-- 星球传送窗口：Nauvis 是母星，永远开放；其余星球在每次状态切换时重置。
+-- 开放阶段持续该星球的配置周期，关闭阶段固定两小时。
 function M.is_travel_open(planet_name)
     if planet_name == 'nauvis' then return true end
-    storage.world_reset_at = storage.world_reset_at or {}
-    local at = storage.world_reset_at[planet_name]
-    if not at then return true end
-    return (at - game.tick) > M.period_of(planet_name) -- / 2
-    -- return (at - game.tick) > M.period_of(planet_name) / 2
+    storage.world_travel_open = storage.world_travel_open or {}
+    return storage.world_travel_open[planet_name] ~= false
 end
 
 function M.travel_open_time_left(planet_name)
@@ -274,6 +271,7 @@ end
 function M.reset_world(planet_name)
     local surface = game.surfaces[planet_name]
     if not surface or not surface.valid then return false end
+    local was_open = M.is_travel_open(planet_name)
 
     evacuate(surface)
 
@@ -288,6 +286,12 @@ function M.reset_world(planet_name)
     surface.clear(true)
 
     storage.world_run[planet_name] = next_run
+
+    -- Nauvis 永远开放；其余星球每次清空后切换状态。
+    if planet_name ~= 'nauvis' then
+        storage.world_travel_open = storage.world_travel_open or {}
+        storage.world_travel_open[planet_name] = not was_open
+    end
 
     -- Nauvis 是新人的起点，也是节奏最快的那颗星球（两小时一轮）。每轮把地图的
     -- 游玩时长归零，让存档看起来永远是"刚开的服"，而不是一个越滚越旧的数字。
@@ -307,7 +311,11 @@ function M.reset_world(planet_name)
     end
 
     storage.world_reset_at = storage.world_reset_at or {}
-    storage.world_reset_at[planet_name] = game.tick + M.period_of(planet_name)
+    if planet_name ~= 'nauvis' and not storage.world_travel_open[planet_name] then
+        storage.world_reset_at[planet_name] = game.tick + 120 * constants.min_to_tick
+    else
+        storage.world_reset_at[planet_name] = game.tick + M.period_of(planet_name)
+    end
     -- 预警记录跟着新一轮清空，否则这颗星球从此再也不会预警第二次。
     storage.world_warned = storage.world_warned or {}
     storage.world_warned[planet_name] = nil
@@ -315,7 +323,13 @@ function M.reset_world(planet_name)
     -- 播报里不带轮次号。storage.world_run 仍然要维护（它是派生新种子和新地块分布的
     -- 依据，见 derive_seed / world_terrain），但那是内部计数，对玩家没有任何可操作性：
     -- 知道这是第 37 轮既不改变他现在该干什么，数字还会一直变大，读起来像是在计时罚站。
-    game.print({'pw.world-reset', util.surface_label(planet_name)})
+    if planet_name == 'nauvis' then
+        game.print({'pw.world-reset', util.surface_label(planet_name)})
+    elseif storage.world_travel_open[planet_name] then
+        game.print({'pw.world-opened', util.surface_label(planet_name)})
+    else
+        game.print({'pw.world-closed-reset', util.surface_label(planet_name)})
+    end
     return true
 end
 
@@ -380,8 +394,17 @@ function M.tick_warn()
             for _, minutes in ipairs(warn_minutes()) do
                 if left <= minutes * constants.min_to_tick and not fired[minutes] then
                     fired[minutes] = true
-                    for _, player in ipairs(players_physically_on(surface)) do
-                        notify(player, 'pw.world-reset-warning', name, minutes)
+                    if name == 'nauvis' then
+                        for _, player in ipairs(players_physically_on(surface)) do
+                            notify(player, 'pw.world-reset-warning', name, minutes)
+                        end
+                    else
+                        local key = M.is_travel_open(name)
+                            and 'pw.world-closes-warning' or 'pw.world-opens-warning'
+                        game.print({key, util.surface_label(name), minutes})
+                        for _, player in pairs(game.connected_players) do
+                            pcall(function() player.play_sound{path = 'utility/new_objective'} end)
+                        end
                     end
                 end
             end

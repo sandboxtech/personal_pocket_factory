@@ -304,7 +304,7 @@ function M.ensure_defaults()
     -- ══ 公共世界 ══
     -- 每星球各自的重置周期（分钟）。周期长短即难度分层：
     -- nauvis 两小时一轮，是新人的练兵场；aquilo 七小时一轮，值得长线经营。
-    -- 除 nauvis 外四颗星球是 3/4/5/7 小时，彼此互质；它们的直传开放窗口取本周期前半段。
+    -- 除 nauvis 外四颗星球是 3/4/5/7 小时，彼此互质；每次重置后固定关闭两小时。
     -- 【按名字索引，不按下标】——constants.PUBLIC_PLANETS 的顺序是
     -- {nauvis, vulcanus, gleba, fulgora, aquilo}，和这张表里 fulgora/gleba 的排列顺序不同，
     -- 谁按下标去取谁就会把这两个星球的周期错配。
@@ -363,6 +363,24 @@ function M.ensure_defaults()
     -- 相邻星球的首次排期错开这么多分钟，避免两个世界同时重置。
     storage.world_reset_at = storage.world_reset_at or {}
     storage.world_run = storage.world_run or {}
+    -- 开放阶段持续各星球自己的配置周期；切换为关闭时重置一次，关闭两小时后
+    -- 再重置并开放。状态独立于地图种子轮次，避免旧存档因轮次奇偶数突然切换。
+    storage.world_travel_open = storage.world_travel_open or {}
+    if not storage.world_travel_two_hours_migrated then
+        for _, name in ipairs(M.PUBLIC_PLANETS) do
+            if name ~= 'nauvis' then
+                local closed_until = storage.world_travel_closed_until
+                    and storage.world_travel_closed_until[name]
+                if closed_until and closed_until > game.tick then
+                    storage.world_travel_open[name] = false
+                    storage.world_reset_at[name] = closed_until
+                elseif storage.world_travel_open[name] == nil then
+                    storage.world_travel_open[name] = true
+                end
+            end
+        end
+        storage.world_travel_two_hours_migrated = true
+    end
     -- 重置前多久提醒还站在星球上的人（分钟）。
     storage.world_warn_minutes = storage.world_warn_minutes or {5, 1}
     -- [星球名][分钟档] = true，记哪一档已经播过，reset_world 时整条清掉。
