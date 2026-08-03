@@ -40,6 +40,10 @@ function M.on_click(event)
         status.show(player)
     elseif name == 'pw_btn_help' then
         help.show(player)
+    elseif name == 'pw_help_detail' then
+        help.show_detail(player)
+    elseif name == 'pw_help_simple' then
+        help.show(player)
     elseif name == 'pw_btn_overview' then
         overview.show(player)
     elseif travel.on_click(player, name) then

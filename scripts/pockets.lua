@@ -74,7 +74,8 @@ local function sync_label(surface, player)
     surface.localised_name = player.name
 end
 
--- 戴森环永昼。环里没有矿，长期电力实际上只有太阳能一条路（燃料和核电都得从公共
+-- 戴森环永昼，且太阳能获得 +900% 加成（总功率为标准值的 10 倍）。
+-- 环里没有矿，长期电力实际上只有太阳能一条路（燃料和核电都得从公共
 -- 星球背回来），而太阳能夜里归零就得先攒蓄电池产能 —— 对一个离线也在计时的场景，
 -- 这道门槛卡的正是最不该被卡的新人。代价是蓄电池在环内失去意义，明确接受。
 --
@@ -82,6 +83,7 @@ end
 -- 每次 ensure 都重设，所以老环不用重建也能补上。
 local function sync_daylight(surface)
     surface.always_day = storage.ring_always_day ~= false
+    surface.solar_power_multiplier = 10
 end
 
 -- 只负责把 surface 本身建出来。箱阵、涂砖、storage 记账都不在这里，
@@ -551,8 +553,8 @@ function M.tick_lifecycle()
         local surface = M.get(player)
         if surface and surface.valid then
             sync_visibility(surface, player.name)
-            -- 永昼一并兜底：这个功能上线时已经存在的环没走过 ensure，
-            -- 靠这里补上，不需要环主重新进环、也不需要重建环。
+            -- 永昼和太阳能倍率一并兜底：已经存在的环没走过 ensure，靠这里补上，
+            -- 不需要环主重新进环、也不需要重建环。
             sync_daylight(surface)
         end
 

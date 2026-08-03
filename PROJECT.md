@@ -180,7 +180,7 @@ tick」，周期（`storage.cycle_minutes`，默认 60 分钟）和相位间隔�
 | `ring_tiles` | 语义砖名（start/grown/space/void）→ 真实砖原型名 | 见 `constants.lua` |
 | `ring_public_hours` / `ring_delete_multiple` / `ring_min_hours` | 离线多久变公共（老玩家上限）/ 删除阈值是它的几倍 / 缩放后的下限 | 30 / 3 / 3 |
 | `ring_hide_private` | 私人环是否从遥控视角平面列表隐藏（公共环一律显示） | true |
-| `ring_always_day` | 戴森环永昼（`surface.always_day`），太阳能 24 小时满出力 | true |
+| `ring_always_day` | 戴森环永昼（`surface.always_day`），太阳能 24 小时持续发电；环面太阳能总功率为标准值 10 倍（+900%） | true |
 | `world_climate_swing` / `world_terrain_scale` | 每轮气候摆幅 / 地貌块大小，都写进引擎的 `property_expression_names`，仅 Nauvis 有效 | 0.35 / 0.5 |
 | `public_size` / `dropoff_limit` | 公共星球边长（tile）/ 每人同时能放几个投递口（全宇宙合计） | 2048 / 8 |
 | `world_warn_minutes` | 重置前多久提醒星球上的人（分钟数组）；半路降落的按实际剩余时间单独提示 | {5, 1} |
