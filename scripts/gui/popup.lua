@@ -20,15 +20,28 @@ function M.close_popup(player)
     if existing then existing.destroy() end
 end
 
--- 建一个居中的空弹窗框架，返回内容容器供调用方填充
+-- 建一个居中的空弹窗框架，返回内容容器供调用方填充。
+-- 标题栏和右上角关闭图标由这里统一生成，因此所有页面的关闭方式保持一致。
 function M.open_popup(player, title)
     M.close_popup(player)
     local frame = player.gui.screen.add{
-        type = 'frame', name = M.POPUP_NAME, caption = title, direction = 'vertical'}
+        type = 'frame', name = M.POPUP_NAME, direction = 'vertical'}
     frame.auto_center = true
+
+    local titlebar = frame.add{type = 'flow', direction = 'horizontal'}
+    local title_label = titlebar.add{type = 'label', caption = title, style = 'frame_title'}
+    title_label.drag_target = frame
+    local drag_space = titlebar.add{type = 'empty-widget', style = 'draggable_space_header'}
+    drag_space.style.horizontally_stretchable = true
+    drag_space.style.height = 24
+    drag_space.drag_target = frame
+    titlebar.add{
+        type = 'sprite-button', name = 'pw_close', sprite = 'utility/close',
+        style = 'frame_action_button', tooltip = {'pw.close'},
+    }
+
     local inner = frame.add{type = 'flow', name = 'inner', direction = 'vertical'}
     inner.style.width = M.WIDTH
-    frame.add{type = 'button', name = 'pw_close', caption = {'pw.close'}}
     return inner
 end
 
