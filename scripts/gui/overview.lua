@@ -75,15 +75,9 @@ local function render_my_ship(container, player)
     local platform, record = ships.of(player)
     if platform then
         local left = math.floor(math.max(0, ships.left_ticks(record)) / constants.hour_to_tick)
-        local board_btn = head.add{type = 'button', name = 'pw_ov_ship_' .. platform.index,
-                                   caption = {'pw.overview-go-ship'}}
         if ships.is_ready(platform) then
             head.add{type = 'label', caption = {'pw.overview-my-ship', platform.name, left}}
         else
-            -- 旧存档可能留下 surface 还没出现的平台，登不上去。
-            -- 禁用按钮并写清状态，比让玩家点一次吃条报错强。
-            board_btn.enabled = false
-            board_btn.tooltip = {'pw.overview-ship-not-ready'}
             head.add{type = 'label', caption = {'pw.overview-my-ship-waiting', platform.name}}
         end
 
@@ -112,7 +106,6 @@ end
 -- 人数一多就得横向滚动 —— 而横向滚动是列表类界面里最难用的东西。
 -- 这也和屏幕最上方那排纯图标传送按钮的做法一致（见 gui/hud.lua）。
 local RING_ICON = '[space-location=solar-system-edge]'
-local SHIP_ICON = '[item=space-platform-starter-pack]'
 
 -- 一位玩家【一行】，四个单元格填进外面传进来的 table：操作 / 名字状态 / 环 / 飞船。
 --
@@ -144,16 +137,6 @@ local function render_row(grid, viewer, row)
         end
     end
 
-    if ship then
-        local board = actions.add{type = 'button', style = 'tool_button',
-                                  name = 'pw_ov_ship_' .. ship.index, caption = SHIP_ICON}
-        board.tooltip = {'pw.overview-go-ship-tip'}
-        if not ship.ready then
-            board.enabled = false
-            board.tooltip = {'pw.overview-ship-not-ready'}
-        end
-    end
-
     -- ② 名字 + 在线状态
     local who = grid.add{type = 'flow', direction = 'horizontal'}
     who.style.vertical_align = 'center'
@@ -176,8 +159,7 @@ local function render_row(grid, viewer, row)
         grid.add{type = 'empty-widget'}
     end
 
-    -- ④ 飞船。剩余寿命是个需要规划的数字（要不要现在上去搬东西），
-    -- 和环长一样归入「老玩家才看」。
+    -- ④ 飞船。剩余寿命和环长一样归入「老玩家才看」。
     if ship then
         grid.add{type = 'label', caption = veteran
             and {'pw.overview-ship-detail', ship.platform.name, ship.left_hours}
@@ -187,20 +169,13 @@ local function render_row(grid, viewer, row)
     end
 end
 
--- 一张两列的紧凑表：一颗登船图标 + 一行飞船信息。无主飞船段用它。
+-- 无主飞船只展示信息，不提供直接传送入口。
 local function render_ship_list(container, viewer, list)
-    local grid = container.add{type = 'table', column_count = 2}
+    local grid = container.add{type = 'table', column_count = 1}
     grid.style.horizontal_spacing = 8
     grid.style.vertical_spacing = 2
     local veteran = util.is_veteran(viewer)
     for _, ship in ipairs(list) do
-        local board = grid.add{type = 'button', style = 'tool_button',
-                               name = 'pw_ov_ship_' .. ship.index, caption = SHIP_ICON}
-        board.tooltip = {'pw.overview-go-ship-tip'}
-        if not ship.ready then
-            board.enabled = false
-            board.tooltip = {'pw.overview-ship-not-ready'}
-        end
         grid.add{type = 'label', caption = veteran
             and {'pw.overview-ship-detail', ship.platform.name, ship.left_hours}
             or  {'pw.overview-ship-plain', ship.platform.name}}
@@ -262,48 +237,6 @@ function M.show(player)
     end
 end
 
--- 把玩家送上某艘飞船。
---
--- 【用 LuaPlayer.enter_space_platform，不要自己算落脚点】。
--- 引擎给了专门的入口："Enters the given space platform if possible"，返回是否进去了。
--- 它把玩家送进【中枢内部】，正是原版坐货运舱抵达平台时的那个状态，玩家自己按退出
--- 就走到平台上 —— 配套的 leave_space_platform 描述得很明白：
--- "Ejects this player from the current space platform... The player is left on the
---  platform at the position of the hub."
---
--- 这比"在中枢周围找一个空格子再 teleport"好在：不依赖平台上此刻有没有空地，
--- 抵达状态也和原版完全一致，不会出现一个站在船边缘、离控制台十万八千里的角色。
-local function board(player, platform_index)
-    local platform = game.forces.player.platforms[platform_index]
-    if not (platform and platform.valid) then
-        player.print({'pw.overview-ship-gone'})
-        return
-    end
-    -- 平台在，但 surface 还没有：旧存档的待成形平台，或引擎还没建出 surface。
-    -- 这和「船没了」是两码事，报错要分开说，否则玩家会以为船被销毁了。
-    if not ships.is_ready(platform) then
-        player.print({'pw.overview-ship-not-ready'})
-        return
-    end
-
-    if player.enter_space_platform(platform) then return end
-
-    -- 走到这里说明引擎拒绝了，但没说为什么（返回值只是个 boolean）。
-    -- 退而求其次：在中枢旁边找个格子传过去。这条兜底是安全的 ——
-    -- empty-space 地块的碰撞掩码里有 player = true，find_non_colliding_position
-    -- 绝不会把角色放进真空；找不到就老实报错，【不】拿一个写死的坐标去 teleport
-    -- （teleport 默认不做碰撞检查，盲传是会把人塞进虚空的）。
-    local surface = platform.surface
-    local hub = platform.hub
-    local origin = (hub and hub.valid) and hub.position or {0, 0}
-    local pos = surface.find_non_colliding_position('character', origin, 64, 1)
-    if not pos then
-        player.print({'pw.overview-ship-no-room'})
-        return
-    end
-    player.teleport(pos, surface)
-end
-
 -- 进别人的戴森环。原来住在 travel.lua 里，随列表一起搬过来。
 local function visit_ring(player, owner_index)
     local owner = game.players[owner_index]
@@ -352,13 +285,6 @@ function M.on_click(player, name)
             storage.ship_scuttle_armed[player.name] = game.tick
         end
         M.show(player)
-        return true
-    end
-
-    local ship_index = string.match(name, '^pw_ov_ship_(%d+)$')
-    if ship_index then
-        board(player, tonumber(ship_index))
-        popup.close_popup(player)
         return true
     end
 

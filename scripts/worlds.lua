@@ -265,13 +265,26 @@ local function clear_statistics(surface)
     end
 end
 
--- 重置单个公共世界：撤人 → 套边界 → 清空 → 排下一轮。
+-- 处理单个公共世界的到期事件。
+-- 关闭中的星球到期时只开放传送并排下一轮，不清空地图；开放中的星球到期时才
+-- 撤人、清空并关闭。Nauvis 永远开放，所以每次到期都走真正的重置。
 -- surface.clear(true) 是异步的，引擎会在结算后触发 on_surface_cleared，
 -- 地形按新的 map_gen_settings 重新生成。
 function M.reset_world(planet_name)
     local surface = game.surfaces[planet_name]
     if not surface or not surface.valid then return false end
     local was_open = M.is_travel_open(planet_name)
+
+    if planet_name ~= 'nauvis' and not was_open then
+        storage.world_travel_open = storage.world_travel_open or {}
+        storage.world_travel_open[planet_name] = true
+        storage.world_reset_at = storage.world_reset_at or {}
+        storage.world_reset_at[planet_name] = game.tick + M.period_of(planet_name)
+        storage.world_warned = storage.world_warned or {}
+        storage.world_warned[planet_name] = nil
+        game.print({'pw.world-opened', util.surface_label(planet_name)})
+        return true
+    end
 
     evacuate(surface)
 
@@ -287,10 +300,10 @@ function M.reset_world(planet_name)
 
     storage.world_run[planet_name] = next_run
 
-    -- Nauvis 永远开放；其余星球每次清空后切换状态。
+    -- Nauvis 永远开放；其余星球真正清空后进入关闭状态。
     if planet_name ~= 'nauvis' then
         storage.world_travel_open = storage.world_travel_open or {}
-        storage.world_travel_open[planet_name] = not was_open
+        storage.world_travel_open[planet_name] = false
     end
 
     -- Nauvis 是新人的起点，也是节奏最快的那颗星球（两小时一轮）。每轮把地图的
@@ -325,8 +338,6 @@ function M.reset_world(planet_name)
     -- 知道这是第 37 轮既不改变他现在该干什么，数字还会一直变大，读起来像是在计时罚站。
     if planet_name == 'nauvis' then
         game.print({'pw.world-reset', util.surface_label(planet_name)})
-    elseif storage.world_travel_open[planet_name] then
-        game.print({'pw.world-opened', util.surface_label(planet_name)})
     else
         game.print({'pw.world-closed-reset', util.surface_label(planet_name)})
     end
