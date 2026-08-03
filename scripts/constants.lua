@@ -338,12 +338,14 @@ function M.ensure_defaults()
     -- 所以如果某颗星球自己的原型或其它脚本先带了随机扰动，这里会基于扰动后的值继续缩放。
     storage.world_resource_boost = storage.world_resource_boost or {
         default = {
-            richness = 1 / 16,      -- 所有星球单格矿量压低到原型的 1/16
+            size = 2,
+            frequency = 1,
+            richness = 1,      -- 所有星球单格矿量是原型的 1
         },
         nauvis = {
-            size = 2,               -- Nauvis 矿脉面积是原型的 2 倍
+            size = 4,               -- Nauvis 矿脉面积是原型的 4 倍
             frequency = 2,          -- Nauvis 矿脉频率是原型的 2 倍
-            richness = 1 / 16,
+            richness = 1 / 8,
         },
     }
     if not storage.world_resource_lean_migrated then

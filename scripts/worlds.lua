@@ -202,7 +202,8 @@ function M.is_travel_open(planet_name)
     storage.world_reset_at = storage.world_reset_at or {}
     local at = storage.world_reset_at[planet_name]
     if not at then return true end
-    return (at - game.tick) > M.period_of(planet_name) / 2
+    return (at - game.tick) > M.period_of(planet_name) -- / 2
+    -- return (at - game.tick) > M.period_of(planet_name) / 2
 end
 
 function M.travel_open_time_left(planet_name)
