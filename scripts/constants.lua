@@ -183,12 +183,6 @@ function M.ensure_defaults()
         if storage[item.key] == nil then storage[item.key] = item.default end
     end
 
-    -- 本次平衡调整：只把旧默认值 2 降到 0.5，管理员已经改成其他数值则保留。
-    if not storage.tech_loss_half_migrated then
-        if storage.tech_loss_k_max == 2 then storage.tech_loss_k_max = 0.5 end
-        storage.tech_loss_half_migrated = true
-    end
-
     -- 科技价格是 Factorio 的全局难度设置，不属于 storage。每次补默认值时顺手校准，
     -- 这样新存档、旧存档以及 game.reload_script() 热更新都会生效。
     if game.difficulty_settings.technology_price_multiplier ~= 2 then
@@ -216,18 +210,11 @@ function M.ensure_defaults()
         {normal = 1, uncommon = 3, rare = 5, epic = 7, legendary = 9}
 
     -- ══ 戴森环形状 ══
-    if storage.ring_width == nil then storage.ring_width = storage.ring_height or 32 end
-    if storage.ring_concrete_width == nil then storage.ring_concrete_width = storage.ring_concrete_height or 16 end
-    if storage.ring_base_half_length == nil then storage.ring_base_half_length = storage.ring_base_half_width or 32 end
-    if storage.ring_length_per_level == nil then storage.ring_length_per_level = (storage.ring_per_level and storage.ring_per_level * 2) or 16 end
-    if storage.ring_length_bonus == nil then storage.ring_length_bonus = storage.ring_level_bonus or 4 end
-
-    if not storage.ring_length_per_level_total_migrated then
-        -- 早先这个字段实际是“每级每端外推多少格”，但名字和 UI 都像“每级总长度”。
-        -- 只迁移旧默认值 8 -> 16；管理员手动设过的 16/32 等值一律尊重。
-        if storage.ring_length_per_level == 8 then storage.ring_length_per_level = 16 end
-        storage.ring_length_per_level_total_migrated = true
-    end
+    if storage.ring_width == nil then storage.ring_width = 32 end
+    if storage.ring_concrete_width == nil then storage.ring_concrete_width = 16 end
+    if storage.ring_base_half_length == nil then storage.ring_base_half_length = 32 end
+    if storage.ring_length_per_level == nil then storage.ring_length_per_level = 16 end
+    if storage.ring_length_bonus == nil then storage.ring_length_bonus = 4 end
 
     -- ring_length_per_level 表示每级增加的总长度；bonus 取 4 时，0 级仍是 64 格长。
 
@@ -317,17 +304,6 @@ function M.ensure_defaults()
     for name, minutes in pairs(world_reset_defaults) do
         if storage.world_reset_minutes[name] == nil then storage.world_reset_minutes[name] = minutes end
     end
-    -- 一次性把旧默认值 360 分钟迁到 420 分钟，并把已经排好的当前轮顺延 60 分钟；
-    -- 之后管理员再手动改成 360 也要尊重。
-    if not storage.world_reset_aquilo_420_migrated then
-        if storage.world_reset_minutes.aquilo == 360 then
-            storage.world_reset_minutes.aquilo = 420
-            if storage.world_reset_at and storage.world_reset_at.aquilo then
-                storage.world_reset_at.aquilo = storage.world_reset_at.aquilo + 60 * M.min_to_tick
-            end
-        end
-        storage.world_reset_aquilo_420_migrated = true
-    end
     -- 公共世界的矿脉倍率。boost_resources 会在 reset_to_prototype 之后乘到原型值上，
     -- 所以如果某颗星球自己的原型或其它脚本先带了随机扰动，这里会基于扰动后的值继续缩放。
     storage.world_resource_boost = storage.world_resource_boost or {
@@ -342,18 +318,6 @@ function M.ensure_defaults()
             richness = 1 / 8,
         },
     }
-    if not storage.world_resource_lean_migrated then
-        if storage.world_resource_boost.size
-                or storage.world_resource_boost.frequency
-                or storage.world_resource_boost.richness then
-            storage.world_resource_boost = {
-                default = {richness = 1 / 16},
-                nauvis = {size = 2, frequency = 2, richness = 1 / 16},
-            }
-        end
-        storage.world_resource_lean_migrated = true
-    end
-
     -- 相邻星球的首次排期错开这么多分钟，避免两个世界同时重置。
     storage.world_reset_at = storage.world_reset_at or {}
     storage.world_run = storage.world_run or {}

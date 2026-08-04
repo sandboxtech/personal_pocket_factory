@@ -239,7 +239,6 @@ function M.queue_player_cleanup(player)
     local rs = cleanup_records()
     if player.connected then
         rs[player.index] = nil
-        rs[player.name] = nil -- 兼容旧存档里按名字排队的记录。
         return false
     end
 
@@ -255,9 +254,8 @@ end
 function M.cancel_player_cleanup(player)
     if not (player and player.valid) then return false end
     local rs = cleanup_records()
-    if not (rs[player.index] or rs[player.name]) then return false end
+    if not rs[player.index] then return false end
     rs[player.index] = nil
-    rs[player.name] = nil
     return true
 end
 
@@ -275,9 +273,7 @@ end
 function M.tick_player_cleanup()
     local cleaned = 0
     for key, record in pairs(cleanup_records()) do
-        local player = (record.index and game.players[record.index])
-            or (record.name and game.players[record.name])
-            or (type(key) == 'string' and game.players[key])
+        local player = record.index and game.players[record.index]
         if not (player and player.valid) then
             cleanup_records()[key] = nil
         elseif player.connected then

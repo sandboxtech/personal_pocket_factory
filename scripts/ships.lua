@@ -64,36 +64,11 @@ local function reconcile_platforms()
     end
 end
 
--- 修复旧 bug 已经制造出的同一玩家多艘飞船：每名主人保留 index 最小的一艘，
--- 其余副本统一安排删除。index 是平台稳定 ID，用它选保留项可保证全服结果确定。
-local function remove_owned_duplicates()
-    local kept = {}
-    for index, record in pairs(records()) do
-        local platform = platform_of(index)
-        if platform and record.owner and not (record.scuttled or is_scheduled(platform)) then
-            local old = kept[record.owner]
-            if not old or index < old.index then
-                if old then
-                    old.record.scuttled = game.tick
-                    old.platform.destroy(1)
-                end
-                kept[record.owner] = {index = index, record = record, platform = platform}
-            else
-                record.scuttled = game.tick
-                platform.destroy(1)
-            end
-        end
-    end
-end
-
-local ensure_life_started
-
 -- 某人的船。顺手清掉指向已消失平台的记录 —— 登记表的自愈只发生在这一个地方，
 -- 其它函数都经由本函数取船，所以不会有第二处需要同步维护的清理逻辑。
 function M.of(player)
     if not (player and player.valid) then return nil end
     reconcile_platforms()
-    remove_owned_duplicates()
     for index, record in pairs(records()) do
         if record.owner == player.name then
             local platform = platform_of(index)
@@ -102,7 +77,6 @@ function M.of(player)
                 -- destroy() 是安排删除，不保证调用后对象立刻失效。待删除的船不能继续
                 -- 出现在“我的飞船”里，否则拆除按钮会再次进入确认态，看起来像没有删除。
                 if not (record.scuttled or is_scheduled(platform)) then
-                    ensure_life_started(record, platform)
                     return platform, record
                 end
             end
@@ -124,15 +98,6 @@ end
 -- 这艘船的寿命（tick）。从平台 surface 真正出现开始算，到期即销毁。
 function M.life_ticks()
     return (storage.ship_life_hours or 50) * constants.hour_to_tick
-end
-
--- 旧存档里已经成形的船没有 built 字段，只能沿用旧 created 字段作为寿命起点；
--- 还没成形的船不补 built，等 on_surface_created 捕到真正建设完成的时刻。
-function ensure_life_started(record, platform)
-    if not record or record.built then return end
-    if M.is_ready(platform) then
-        record.built = record.created or game.tick
-    end
 end
 
 -- 还能活多久（tick）。记录不存在返回 nil；尚未成形返回完整寿命；已超期返回负数。
@@ -345,7 +310,6 @@ function M.all()
         if platform then
             sync_deletion_state(record, platform)
             if not (record.scuttled or is_scheduled(platform)) then
-                ensure_life_started(record, platform)
             -- space_location 在飞船停泊时是星球原型，航行途中是 nil。
             -- 只取 name 交给 GUI，GUI 自己决定怎么显示（图标 / "航行中"）。
             local location = platform.space_location
@@ -376,7 +340,6 @@ end
 -- 船本来就是有寿命的临时资产，跟船一起沉掉也符合它的定位。
 function M.tick_lifecycle()
     reconcile_platforms()
-    remove_owned_duplicates()
     local destroyed = 0
     for index, record in pairs(records()) do
         local platform = platform_of(index)
@@ -384,7 +347,6 @@ function M.tick_lifecycle()
             records()[index] = nil
         else
             sync_deletion_state(record, platform)
-            ensure_life_started(record, platform)
         end
         if platform and record.built and M.left_ticks(record) <= 0
                 and not (record.scuttled or is_scheduled(platform)) then
