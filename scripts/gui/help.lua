@@ -47,10 +47,9 @@ function M.show_detail(player)
     label.style.single_line = false
     label.style.maximal_width = popup.WIDTH
 
-    -- 自动兑换有在线、离线两档速率。
+    -- 自动兑换只处理在线玩家。
     local extra = content.add{type = 'label', caption = {'pw.help-body-veteran',
         storage.auto_convert_minutes or 1,
-        storage.auto_convert_offline_minutes or 10,
     }}
     extra.style.single_line = false
     extra.style.maximal_width = popup.WIDTH

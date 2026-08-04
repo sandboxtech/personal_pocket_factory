@@ -136,31 +136,18 @@ function M.convert(player)
     return total_gain, entries, points_used
 end
 
--- 周期任务：把每个玩家戴森环收货箱里的科技瓶自动兑换成经验。
+-- 周期任务：把在线玩家戴森环收货箱里的科技瓶自动兑换成经验。
 --
--- 遍历所有玩家而不只在线的：离线时工厂也该继续产出经验。
+-- 只遍历 connected_players。离线期间体力仍会恢复，但不读取戴森环库存；
+-- 玩家上线后，下一轮自动兑换会继续处理累积的科技包。
 --
-    -- 【跳过公共期玩家】：他们的系统收货箱已经切到全服公共库存
+-- 【跳过公共期玩家】：他们的系统收货箱已经切到全服公共库存
 -- （chests.expected_link_id），把公共的货记到缺席主人头上是错的。
---
--- 【两档节奏】在线 auto_convert_minutes（默认 1 分钟），离线
--- auto_convert_offline_minutes（默认 10 分钟）。反馈延迟只对在线的人有意义，
--- 离线玩家只关心回来时总量对不对，没理由每分钟把全服离线的环都扫一遍。
--- 总产出不受节奏影响：配额是体力点数，换得勤只是把同样多的体力分更多次花掉。
 function M.tick_auto_convert()
     storage.ring_state = storage.ring_state or {}
 
-    -- 离线闸门。到点了就把下次时刻推后一个周期，本轮连离线玩家一起处理。
-    local offline_period = (storage.auto_convert_offline_minutes or 10) * constants.min_to_tick
-    local offline_due = (storage.auto_convert_offline_at or 0) <= game.tick
-    if offline_due then
-        storage.auto_convert_offline_at = game.tick + offline_period
-    end
-
-    for _, player in pairs(game.players) do
-        -- 在线的每轮都过；离线的只在闸门打开的那一轮过。
-        if (player.connected or offline_due)
-                and storage.ring_state[player.name] ~= 'public' then
+    for _, player in pairs(game.connected_players) do
+        if storage.ring_state[player.name] ~= 'public' then
             local surface = game.surfaces[ring.surface_name_for(player)]
             if surface and surface.valid then
                 -- 系统收货箱共享同一份 inventory（都挂着同一个 link_id），
@@ -171,13 +158,8 @@ function M.tick_auto_convert()
                     local inventory = chest.get_inventory(defines.inventory.chest)
                     local total_gain = convert_inventory(inventory, player.name)
                     if total_gain then
-                        -- 离线时也要让环该变长就变长，回来时直接看到长大的环。
                         ring.apply_growth(player)
-                        -- 在线玩家给个提示；离线的不用管（player.print 对离线玩家仍然安全，
-                        -- 但打印出来的消息没人看得到，不如干脆跳过）。
-                        if player.connected then
-                            player.print({'pw.auto-convert-done', util.readable(total_gain)})
-                        end
+                        player.print({'pw.auto-convert-done', util.readable(total_gain)})
                     end
                 end
             end

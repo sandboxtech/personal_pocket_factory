@@ -91,7 +91,6 @@ M.TUNABLES = {
     {key = 'ship_lock_native_creation', default = true, group = 'ship', applies = 'reload'},
     {key = 'cycle_minutes', default = 60, group = 'cycle', applies = 'live'},
     {key = 'auto_convert_minutes', default = 1, group = 'cycle', applies = 'live'},
-    {key = 'auto_convert_offline_minutes', default = 10, group = 'cycle', applies = 'live'},
     {key = 'cycle_phase_minutes', default = 5, group = 'cycle', applies = 'new'},
     {key = 'cycle_base_offset_minutes', default = 2, group = 'cycle', applies = 'new'},
     {key = 'hud_refresh_ticks', default = 3600, group = 'cycle', applies = 'live'},
