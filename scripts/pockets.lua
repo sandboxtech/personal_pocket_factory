@@ -259,6 +259,11 @@ function M.cancel_player_cleanup(player)
     return true
 end
 
+function M.is_player_pending_cleanup(player)
+    if not (player and player.valid) then return false end
+    return cleanup_records()[player.index] ~= nil
+end
+
 local function remove_offline_player(player)
     local ok, err = pcall(function()
         game.remove_offline_players({player.index})

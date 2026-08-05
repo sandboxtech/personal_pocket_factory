@@ -44,7 +44,9 @@ local function build_rows()
     local rows = {}
     for _, player in pairs(game.players) do
         local ring_entry, ship_entry = rings[player.name], owned[player.name]
-        if ring_entry or ship_entry then
+        -- 环已回收并进入永久删除队列的离线玩家不再展示。这里显式过滤，避免
+        -- Surface 或飞船的异步删除尚未结算时，旧登记让玩家短暂重新出现在列表里。
+        if not pockets.is_player_pending_cleanup(player) and (ring_entry or ship_entry) then
             rows[#rows + 1] = {player = player, ring = ring_entry, ship = ship_entry}
         end
     end

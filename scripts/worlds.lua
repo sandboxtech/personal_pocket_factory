@@ -258,7 +258,7 @@ local function clear_statistics(surface)
     if not (force and force.valid) then return end
     for _, getter in ipairs(STATISTIC_GETTERS) do
         -- pcall 包住：统计只是观感，取不到某一类不该让整个世界重置流程中断。
-        local ok, err = pcall(function() force[getter](force, surface).clear() end)
+        local ok, err = pcall(function() force[getter](surface).clear() end)
         if not ok then
             log('[pw] 清统计失败 ' .. getter .. '：' .. tostring(err))
         end
