@@ -98,7 +98,7 @@ local function render_my_ship(container, player)
         scuttle.tooltip = {armed and 'pw.overview-scuttle-confirm-tip' or 'pw.overview-scuttle-tip'}
     else
         head.add{type = 'button', name = 'pw_ov_build', caption = {'pw.overview-build-ship'},
-                 tooltip = {'pw.overview-build-ship-tip'}}
+                 tooltip = {'pw.overview-build-ship-tip', constants.SHIP_STAMINA_COST}}
         head.add{type = 'label', caption = {'pw.overview-no-ship-hint'}}
     end
 end
@@ -267,7 +267,11 @@ function M.on_click(player, name)
     if name == 'pw_ov_build' then
         local platform, err = ships.create(player)
         if not platform then
-            player.print({err or 'pw.ship-create-failed'})
+            if err == 'pw.ship-no-stamina' then
+                player.print({err, constants.SHIP_STAMINA_COST})
+            else
+                player.print({err or 'pw.ship-create-failed'})
+            end
         end
         M.show(player)   -- 无论成败都重开，玩家立刻看到最新状态
         return true

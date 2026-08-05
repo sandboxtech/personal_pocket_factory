@@ -20,6 +20,8 @@ M.PUBLIC_PLANETS = {'nauvis', 'vulcanus', 'gleba', 'fulgora', 'aquilo'}
 -- 公共库存的 link_id。player.index 从 1 开始，所以 0 永不碰撞。
 -- 全服只有一个公共库存：所有弃厂的产出汇进同一个池子。
 M.PUBLIC_LINK_ID = 0
+M.SHIP_STAMINA_COST = 1000
+M.RESPAWN_EQUIPMENT_COST = 1000
 
 -- ══ 环心布局：8 个收货箱的两行，以及玩家进环的落点 ══
 --
@@ -95,7 +97,6 @@ M.TUNABLES = {
     {key = 'cycle_base_offset_minutes', default = 2, group = 'cycle', applies = 'new'},
     {key = 'hud_refresh_ticks', default = 3600, group = 'cycle', applies = 'live'},
     {key = 'tech_loss_k_max', default = 0.5, group = 'tech', applies = 'live'},
-    {key = 'starter_equipment_hours', default = 3, group = 'misc', applies = 'live'},
     {key = 'detail_hours', default = 6, group = 'misc', applies = 'live'},
     {key = 'block_blueprint_library', default = false, group = 'misc', applies = 'dead'},
     {key = 'debug', default = false, group = 'misc', applies = 'live'},
@@ -279,9 +280,6 @@ function M.ensure_defaults()
         {name = 'solar-panel-equipment', count = 6},
         {name = 'construction-robot', count = 10},
     }
-    -- [玩家名] = 上次领取的 tick。复活时的冷却判定读它，见 players.maybe_grant_equipment。
-    storage.starter_equipment_at = storage.starter_equipment_at or {}
-
     -- ══ 公共世界 ══
     -- 每星球各自的重置周期（分钟）。周期长短即难度分层：
     -- nauvis 两小时一轮，是新人的练兵场；aquilo 七小时一轮，值得长线经营。

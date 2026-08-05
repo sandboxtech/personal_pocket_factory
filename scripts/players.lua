@@ -129,10 +129,7 @@ local function equip_or_insert(player, armor_stack, item)
     player.insert{name = item.name, count = count}
 end
 
--- 发一套起始装备，并记下时间。返回是否真的发了东西。
---
--- 时间戳记在 storage.starter_equipment_at[玩家名]（按名字，和 storage 其余部分一致），
--- 复活时的冷却判定读的就是它。
+-- 发一套起始装备。返回是否真的发了东西。
 local function grant_equipment(player)
     local list = storage.starter_equipment or {}
     if #list == 0 then return false end
@@ -161,31 +158,20 @@ local function grant_equipment(player)
         end
     end
 
-    storage.starter_equipment_at = storage.starter_equipment_at or {}
-    storage.starter_equipment_at[player.name] = game.tick
     return true
 end
 M.grant_equipment = grant_equipment
 
--- 距离上次领起始装备过了多久（tick）。从没领过返回一个大到必定过冷却的数。
-local function since_equipment(player_name)
-    storage.starter_equipment_at = storage.starter_equipment_at or {}
-    local at = storage.starter_equipment_at[player_name]
-    if not at then return math.huge end
-    return game.tick - at
-end
-
--- 复活时的补给：超过冷却就再发一套。
---
--- 【冷却的意义是把"死了重来"和"刷装备"分开】。没有冷却的话，玩家原地自杀就能
--- 无限刷模块装甲和太阳能板，那不是补给是产线。定成 3 小时（storage.starter_equipment_hours）
--- 是因为它比一轮星球重置还长：真正因为一次事故失去全部家当的人等得起，
--- 而想靠死亡刷装备的人会发现这比自己造慢得多。
+-- 复活时可以立刻补领，但每套消耗固定体力。
 function M.maybe_grant_equipment(player)
-    local hours = storage.starter_equipment_hours or 3
-    if since_equipment(player.name) < hours * constants.hour_to_tick then return false end
+    local list = storage.starter_equipment or {}
+    if #list == 0 then return false end
+    if not stamina.spend(player.name, constants.RESPAWN_EQUIPMENT_COST) then
+        player.print({'pw.starter-equipment-no-stamina', constants.RESPAWN_EQUIPMENT_COST})
+        return false
+    end
     if not grant_equipment(player) then return false end
-    player.print({'pw.starter-equipment', hours})
+    player.print({'pw.starter-equipment', constants.RESPAWN_EQUIPMENT_COST})
     return true
 end
 

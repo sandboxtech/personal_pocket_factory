@@ -17,6 +17,7 @@
 -- 玩家走正常复活流程回到自己的环），这条依赖边随那段逻辑一起消失了。
 local constants = require('scripts.constants')
 local events = require('scripts.events')
+local stamina = require('scripts.stamina')
 -- ring 只依赖 constants 和 geometry，两者都不反向依赖 ships，顶层 require 不成环。
 local ring = require('scripts.ring')
 
@@ -184,6 +185,9 @@ end)
 function M.create(player)
     if not (player and player.valid) then return nil, 'pw.ship-create-failed' end
     if M.of(player) then return nil, 'pw.ship-already-have' end
+    if not stamina.spend(player.name, constants.SHIP_STAMINA_COST) then
+        return nil, 'pw.ship-no-stamina'
+    end
 
     local platform = game.forces.player.create_space_platform{
         name = player.name,
@@ -191,6 +195,7 @@ function M.create(player)
         starter_pack = STARTER_PACK,
     }
     if not platform then
+        stamina.add(player.name, constants.SHIP_STAMINA_COST)
         -- 把当时的闸门状态一并记下来：如果哪天引擎改成"锁了就连脚本也不让建"，
         -- 这条 log 是唯一能立刻指出真凶的线索，否则只会看到一个没有理由的失败。
         log('[pw] create_space_platform 返回 nil；space_platforms_unlocked = '
@@ -207,6 +212,7 @@ function M.create(player)
     if not ok then
         record.scuttled = game.tick
         platform.destroy(1)
+        stamina.add(player.name, constants.SHIP_STAMINA_COST)
         log('[pw] apply_starter_pack 失败：' .. tostring(err))
         return nil, 'pw.ship-create-failed'
     end
