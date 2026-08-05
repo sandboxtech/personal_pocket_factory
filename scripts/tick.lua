@@ -118,6 +118,7 @@ script.on_nth_tick(3600, events.safe('nth_tick', function()
     -- （space-platform 科技只解锁配方，不管这个按钮），所以不枚举、直接每分钟压一遍。
     -- 代价是一次布尔判断，收益是无论哪条路径把它解开都最迟一分钟内被锁回去。
     ships.enforce_lock()
+    pockets.clear_connected_pollution()
 
     -- 公共世界重置不并入上面那套相位表：它是 per-planet 各自独立的周期。
     -- 预警要【每分钟都查】，不能塞进"到期才查"的分支 —— 它比重置早好几分钟触发。

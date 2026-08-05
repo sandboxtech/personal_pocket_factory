@@ -47,6 +47,8 @@ end
 -- false 则保留已排期的计划、只给新增的世界补排 —— 老存档上重新铺开会让
 -- 所有人正在计算的倒计时集体跳变，那是纯粹的破坏。
 function M.run(respread)
+    -- 已移除复活装备冷却；初始化/手动修复时顺手删除旧存档里的废弃键。
+    storage.starter_equipment_hours = nil
     constants.ensure_defaults()
     players.setup_perm_group()
     M.unlock_all_space_locations()

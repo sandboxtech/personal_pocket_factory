@@ -77,6 +77,22 @@ local function sync_daylight(surface)
     surface.solar_power_multiplier = 10
 end
 
+-- Factorio 2.0.77 的 LuaSurface.pollutant_type 是只读属性，没有按 surface 关闭污染的
+-- 运行时 API。不能关闭 game.map_settings.pollution，否则公共星球也会一起失去污染。
+-- 戴森环没有敌巢，因此每次创建、进入或修复时清空即可消除它的玩法和显示影响。
+local function sync_pollution(surface)
+    surface.clear_pollution()
+end
+
+-- 在线玩家的环每分钟清一次，避免玩家停留期间重新积累。只取已存在的 surface，
+-- 不扫描离线玩家，也绝不因清污染而创建戴森环。
+function M.clear_connected_pollution()
+    for _, player in pairs(game.connected_players) do
+        local surface = M.get(player)
+        if surface and surface.valid then sync_pollution(surface) end
+    end
+end
+
 -- 只负责把 surface 本身建出来。箱阵、涂砖、storage 记账都不在这里，
 -- 那些是【每次 ensure 都要跑一遍】的幂等步骤，见 M.ensure。
 local function create_surface(player)
@@ -90,14 +106,7 @@ local function create_surface(player)
     surface.freeze_daytime = true    -- 永昼本身由 sync_daylight 按配置设
     surface.show_clouds = false
 
-    -- 关掉污染。【赋 {} 不是 nil】：Pollutant 是 { pollutant = ... }，文档说
-    -- "If nil, pollution is disabled"；而字段本身 = nil 是"不覆盖"，静默 no-op。
-    -- 两种写法长得几乎一样、含义完全相反。
-    -- pcall 是因为这个字段较新，老版本赋值会抛错，而它只省 UPS、不影响玩法。
-    local ok = pcall(function() surface.override_pollution_type = {} end)
-    if not ok then
-        log('[pw] 本版本 LuaSurface 无 override_pollution_type，戴森环污染未关闭')
-    end
+    sync_pollution(surface)
 
     return surface
 end
@@ -112,6 +121,8 @@ function M.ensure(player)
         surface = create_surface(player)
         if not (surface and surface.valid) then return nil end
     end
+
+    sync_pollution(surface)
 
     -- 同步生成出生区，玩家马上就要落地，异步排队会落进还没生成的区块。
     -- 逐区块请求（ring.ensure_chunks），不给大半径——半径是正方形，纵向无边界会真的生成出去。
