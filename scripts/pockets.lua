@@ -139,6 +139,7 @@ function M.ensure(player)
     sync_label(surface, player)
     sync_visibility(surface, player.name)
     sync_daylight(surface)
+    ring.apply_growth(player)
 
     if storage.debug then
         for _, p in pairs(game.connected_players) do

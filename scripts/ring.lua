@@ -196,7 +196,6 @@ end
 --
 -- 调用方须保证这个矩形没有跨到未生成的区块 —— 涂到未生成的区块上要么被引擎静默丢弃
 -- （白费一次 set_tiles），要么抛错被 events 的 pcall 吞掉、留下涂错却没人发现的砖。
--- on_chunk_generated 每次只传本区块的范围，apply_growth 逐区块行调用，都是为了这条。
 function M.paint_area(surface, x_from, x_to, y_from, y_to, half_length, layout)
     local orientation = (layout and layout.orientation) or 'vertical'
     local ring_width
@@ -256,21 +255,36 @@ function M.on_chunk_generated(event)
         public_record)
 end
 
-local function paint_chunked(surface, x_from, x_to, y_from, y_to, half_length)
+-- 缓存可能和实际地面不一致。修复时只替换仍为环外墙的 tile，玩家铺过的地砖
+-- 一律保留；这样可以安全重扫目标长度，而不会把平台基座刷回教学网格。
+local function fill_void_tiles(surface, x_from, x_to, y_from, y_to, half_length)
     M.ensure_chunks(surface, x_from, x_to, y_from, y_to)
-    local cx_from = math.floor(x_from / 32)
-    local cx_to   = math.floor((x_to - 1) / 32)
-    local cy_from = math.floor(y_from / 32)
-    local cy_to   = math.floor((y_to - 1) / 32)
-    for cx = cx_from, cx_to do
-        for cy = cy_from, cy_to do
-            local x0 = math.max(x_from, cx * 32)
-            local x1 = math.min(x_to, (cx + 1) * 32)
-            local y0 = math.max(y_from, cy * 32)
-            local y1 = math.min(y_to, (cy + 1) * 32)
-            M.paint_area(surface, x0, x1, y0, y1, half_length)
+    local ring_tiles = storage.ring_tiles or {}
+    local void_name = ring_tiles.void or 'out-of-map'
+    local ring_width = storage.ring_width or 32
+    local concrete_width = storage.ring_concrete_width or 16
+    local base_half_length = storage.ring_base_half_length or 32
+    local pond_half = storage.ring_pond_half or 2
+    local tiles = {}
+
+    for x = x_from, x_to - 1 do
+        for y = y_from, y_to - 1 do
+            local current = surface.get_tile({x, y})
+            if current.name == void_name or current.name == 'out-of-map' then
+                local semantic = geometry.tile_at_vertical(
+                    x, y, half_length, ring_width, concrete_width, base_half_length, pond_half)
+                if semantic ~= 'void' then
+                    tiles[#tiles + 1] = {
+                        name = ring_tiles[semantic] or 'out-of-map',
+                        position = {x, y},
+                    }
+                end
+            end
         end
     end
+
+    if #tiles > 0 then surface.set_tiles(tiles, false, false) end
+    return #tiles
 end
 
 -- 等级变化后扩容。只涂【新增的上下两段】，不碰玩家已经建过东西的老地皮。
@@ -286,19 +300,28 @@ function M.apply_growth(player)
     storage.ring_applied_half_length = storage.ring_applied_half_length or {}
     local old_half = storage.ring_applied_half_length[player.name] or 0
     local new_half = M.half_length_of(player.name)
-    if new_half <= old_half then return false end
 
     local ring_width = storage.ring_width or 32
     local x_half = math.floor(ring_width / 2)
 
-    -- 新增长度需要覆盖两种区块：新生成的（on_chunk_generated 会自动涂，但那时机不确定，
-    -- 显式再涂一遍是幂等的）和本来就存在的（之前作为环外溢出被生成、涂成 out-of-map 的，
-    -- 不会再触发生成事件，必须在这里显式重涂）。
-    paint_chunked(surface, -x_half, x_half, -new_half, -old_half, new_half)
-    paint_chunked(surface, -x_half, x_half, old_half, new_half, new_half)
+    -- 缓存说已经够长时，再看实际南北边界。旧版本可能把缓存写大但没有真正铺地，
+    -- 只信缓存会让玩家升级后永远看不到增长。
+    if new_half <= old_half then
+        M.ensure_chunks(surface, -x_half, x_half, -new_half, new_half)
+        local void_name = (storage.ring_tiles and storage.ring_tiles.void) or 'out-of-map'
+        local north = surface.get_tile({0, -new_half}).name
+        local south = surface.get_tile({0, new_half - 1}).name
+        if north ~= void_name and north ~= 'out-of-map'
+                and south ~= void_name and south ~= 'out-of-map' then
+            return false
+        end
+    end
+
+    -- 全目标范围只补 out-of-map。正常增长和缓存修复走同一条安全路径。
+    local changed = fill_void_tiles(surface, -x_half, x_half, -new_half, new_half, new_half)
 
     storage.ring_applied_half_length[player.name] = new_half
-    return true
+    return changed > 0
 end
 
 return M
