@@ -75,7 +75,7 @@ function M.ensure_array(surface, player)
             if chest then
                 chest.link_id = link_id
                 chest.destructible = false   -- 不可摧毁
-                chest.minable = false        -- 不可挖走
+                chest.minable_flag = false   -- 不可挖走；2.1 中 minable 已只读
                 -- 防偷三道锁，各管一路：
                 --   · gui_mode = "admins"（原版 linked-chest 原型自带）挡普通玩家
                 --   · operable = false 挡管理员 —— 能打开界面的人就能编辑 link_id，
@@ -99,7 +99,7 @@ function M.ensure_array(surface, player)
             -- 另外三项是"任何时候都该是这个值"的不变量，一起压一遍代价可忽略。
             existing.link_id = link_id
             existing.destructible = false
-            existing.minable = false
+            existing.minable_flag = false
             -- operable = false 的理由见上面新建分支里的同名注释：operable = false 是挡住
             -- 管理员的那道锁。原型自带 gui_mode = "admins" 挡住普通玩家，但管理员（包括
             -- 单人游戏主机）被放行。防偷是两道锁分工，operable = false 不是冗余，是唯一
@@ -378,7 +378,7 @@ events.on(defines.events.on_space_platform_built_entity, on_built)
 -- ══ 挖走 / 被摧毁时清理登记表 ══
 -- 现在戴森环里也可能存在被登记的玩家关联箱（见上面 on_built），所以不再按 surface
 -- 排除戴森环——任何平面上的都要清理。
-    -- 那些系统收货箱 destructible = false、minable = false，本来就不会触发
+    -- 那些系统收货箱 destructible = false、minable_flag = false，本来就不会触发
 -- on_player_mined_entity 也不会触发 on_entity_died；这里仍然显式判一次 destructible
 -- 作为双重保险，和 on_built 里的判据保持一致：destructible == false 是系统箱的唯一标志。
 -- 不清理也不会出大错：下次放置时 find_entity 在旧坐标找不到箱子，会静默跳过——
